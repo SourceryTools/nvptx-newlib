@@ -6,6 +6,7 @@ INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
 GENERAL_SOURCES = \
 	abs.c 		\
+	assert.c	\
 	atof.c 		\
 	atoff.c		\
 	atoi.c  	\

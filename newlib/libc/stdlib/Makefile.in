@@ -82,16 +82,16 @@ am__DEPENDENCIES_1 =
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_TRUE@	$(am__DEPENDENCIES_1)
 @HAVE_LONG_DOUBLE_TRUE@am__objects_1 = lib_a-strtold.$(OBJEXT) \
 @HAVE_LONG_DOUBLE_TRUE@	lib_a-wcstold.$(OBJEXT)
-am__objects_2 = lib_a-abs.$(OBJEXT) lib_a-atof.$(OBJEXT) \
-	lib_a-atoff.$(OBJEXT) lib_a-atoi.$(OBJEXT) \
-	lib_a-atol.$(OBJEXT) lib_a-div.$(OBJEXT) lib_a-dtoa.$(OBJEXT) \
-	lib_a-dtoastub.$(OBJEXT) lib_a-gdtoa-gethex.$(OBJEXT) \
-	lib_a-gdtoa-hexnan.$(OBJEXT) lib_a-labs.$(OBJEXT) \
-	lib_a-ldiv.$(OBJEXT) lib_a-ldtoa.$(OBJEXT) \
-	lib_a-mprec.$(OBJEXT) lib_a-rand.$(OBJEXT) \
-	lib_a-rand_r.$(OBJEXT) lib_a-strtod.$(OBJEXT) \
-	lib_a-strtol.$(OBJEXT) lib_a-strtoul.$(OBJEXT) \
-	$(am__objects_1)
+am__objects_2 = lib_a-abs.$(OBJEXT) lib_a-assert.$(OBJEXT) \
+	lib_a-atof.$(OBJEXT) lib_a-atoff.$(OBJEXT) \
+	lib_a-atoi.$(OBJEXT) lib_a-atol.$(OBJEXT) lib_a-div.$(OBJEXT) \
+	lib_a-dtoa.$(OBJEXT) lib_a-dtoastub.$(OBJEXT) \
+	lib_a-gdtoa-gethex.$(OBJEXT) lib_a-gdtoa-hexnan.$(OBJEXT) \
+	lib_a-labs.$(OBJEXT) lib_a-ldiv.$(OBJEXT) \
+	lib_a-ldtoa.$(OBJEXT) lib_a-mprec.$(OBJEXT) \
+	lib_a-rand.$(OBJEXT) lib_a-rand_r.$(OBJEXT) \
+	lib_a-strtod.$(OBJEXT) lib_a-strtol.$(OBJEXT) \
+	lib_a-strtoul.$(OBJEXT) $(am__objects_1)
 am__objects_3 = lib_a-drand48.$(OBJEXT) lib_a-ecvtbuf.$(OBJEXT) \
 	lib_a-efgcvt.$(OBJEXT) lib_a-erand48.$(OBJEXT) \
 	lib_a-jrand48.$(OBJEXT) lib_a-lcong48.$(OBJEXT) \
@@ -117,10 +117,10 @@ am__objects_5 =
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 @HAVE_LONG_DOUBLE_TRUE@am__objects_7 = strtold.lo wcstold.lo
-am__objects_8 = abs.lo atof.lo atoff.lo atoi.lo atol.lo div.lo dtoa.lo \
-	dtoastub.lo gdtoa-gethex.lo gdtoa-hexnan.lo labs.lo ldiv.lo \
-	ldtoa.lo mprec.lo rand.lo rand_r.lo strtod.lo strtol.lo \
-	strtoul.lo $(am__objects_7)
+am__objects_8 = abs.lo assert.lo atof.lo atoff.lo atoi.lo atol.lo \
+	div.lo dtoa.lo dtoastub.lo gdtoa-gethex.lo gdtoa-hexnan.lo \
+	labs.lo ldiv.lo ldtoa.lo mprec.lo rand.lo rand_r.lo strtod.lo \
+	strtol.lo strtoul.lo $(am__objects_7)
 am__objects_9 = drand48.lo ecvtbuf.lo efgcvt.lo erand48.lo jrand48.lo \
 	lcong48.lo lrand48.lo mrand48.lo nrand48.lo rand48.lo \
 	seed48.lo srand48.lo strtoll.lo strtoll_r.lo strtoull.lo \
@@ -307,9 +307,9 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
-GENERAL_SOURCES = abs.c atof.c atoff.c atoi.c atol.c div.c dtoa.c \
-	dtoastub.c gdtoa-gethex.c gdtoa-hexnan.c labs.c ldiv.c ldtoa.c \
-	mprec.c rand.c rand_r.c strtod.c strtol.c strtoul.c \
+GENERAL_SOURCES = abs.c assert.c atof.c atoff.c atoi.c atol.c div.c \
+	dtoa.c dtoastub.c gdtoa-gethex.c gdtoa-hexnan.c labs.c ldiv.c \
+	ldtoa.c mprec.c rand.c rand_r.c strtod.c strtol.c strtoul.c \
 	$(am__append_1)
 @NEWLIB_NANO_MALLOC_FALSE@MALIGNR = malignr
 @NEWLIB_NANO_MALLOC_TRUE@MALIGNR = nano-malignr
@@ -513,6 +513,12 @@ lib_a-abs.o: abs.c
 
 lib_a-abs.obj: abs.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-abs.obj `if test -f 'abs.c'; then $(CYGPATH_W) 'abs.c'; else $(CYGPATH_W) '$(srcdir)/abs.c'; fi`
+
+lib_a-assert.o: assert.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-assert.o `test -f 'assert.c' || echo '$(srcdir)/'`assert.c
+
+lib_a-assert.obj: assert.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-assert.obj `if test -f 'assert.c'; then $(CYGPATH_W) 'assert.c'; else $(CYGPATH_W) '$(srcdir)/assert.c'; fi`
 
 lib_a-atof.o: atof.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-atof.o `test -f 'atof.c' || echo '$(srcdir)/'`atof.c
