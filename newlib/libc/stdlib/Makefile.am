@@ -5,60 +5,25 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
 GENERAL_SOURCES = \
-	__adjust.c 	\
-	__atexit.c	\
-	__call_atexit.c	\
-	__exp10.c 	\
-	__ten_mu.c 	\
-	_Exit.c		\
-	abort.c  	\
 	abs.c 		\
-	assert.c  	\
-	atexit.c	\
 	atof.c 		\
 	atoff.c		\
 	atoi.c  	\
 	atol.c		\
-	calloc.c	\
 	div.c  		\
 	dtoa.c 		\
 	dtoastub.c 	\
-	environ.c	\
-	envlock.c	\
-	eprintf.c	\
-	exit.c 		\
 	gdtoa-gethex.c	\
 	gdtoa-hexnan.c	\
-	getenv.c  	\
-	getenv_r.c	\
 	labs.c 		\
 	ldiv.c  	\
 	ldtoa.c		\
-	malloc.c  	\
-	mblen.c		\
-	mblen_r.c	\
-	mbstowcs.c	\
-	mbstowcs_r.c	\
-	mbtowc.c	\
-	mbtowc_r.c	\
-	mlock.c		\
 	mprec.c		\
-	mstats.c	\
 	rand.c		\
 	rand_r.c	\
-	realloc.c	\
-	reallocf.c	\
-	sb_charsets.c	\
 	strtod.c	\
 	strtol.c	\
-	strtoul.c	\
-	wcstod.c	\
-	wcstol.c	\
-	wcstoul.c	\
-	wcstombs.c	\
-	wcstombs_r.c	\
-	wctomb.c	\
-	wctomb_r.c
+	strtoul.c
 
 if HAVE_LONG_DOUBLE
 GENERAL_SOURCES += \
@@ -95,8 +60,6 @@ MALLOCR=mallocr
 endif
 
 EXTENDED_SOURCES = \
-	cxa_atexit.c	\
-	cxa_finalize.c	\
 	drand48.c	\
 	ecvtbuf.c	\
 	efgcvt.c	\
@@ -105,8 +68,6 @@ EXTENDED_SOURCES = \
 	lcong48.c	\
 	lrand48.c	\
 	mrand48.c	\
-	msize.c		\
-	mtrim.c		\
 	nrand48.c	\
 	rand48.c	\
 	seed48.c	\
@@ -115,10 +76,6 @@ EXTENDED_SOURCES = \
 	strtoll_r.c	\
 	strtoull.c	\
 	strtoull_r.c	\
-	wcstoll.c	\
-	wcstoll_r.c	\
-	wcstoull.c	\
-	wcstoull_r.c	\
 	atoll.c		\
 	llabs.c		\
 	lldiv.c
@@ -126,36 +83,12 @@ EXTENDED_SOURCES = \
 ELIX_2_SOURCES = \
 	a64l.c		\
 	btowc.c		\
-	getopt.c	\
-	getsubopt.c	\
-	l64a.c		\
-	malign.c	\
-	mbrlen.c	\
-	mbrtowc.c	\
-	mbsinit.c	\
-	mbsnrtowcs.c	\
-	mbsrtowcs.c	\
-	on_exit.c	\
-	valloc.c	\
-	wcrtomb.c	\
-	wcsnrtombs.c	\
-	wcsrtombs.c	\
-	wctob.c
+	l64a.c
 
-ELIX_2_OBJS = \
-	$(lpfx)$(MALIGNR).$(oext)	\
-	$(lpfx)$(MALLOPTR).$(oext) \
-	$(lpfx)$(PVALLOCR).$(oext)	\
-	$(lpfx)$(VALLOCR).$(oext)
+ELIX_2_OBJS =
+ELIX_3_SOURCES = 
 
-ELIX_3_SOURCES = \
-	putenv.c	\
-	putenv_r.c	\
-	setenv.c	\
-	setenv_r.c
-
-ELIX_4_SOURCES = \
-	system.c
+ELIX_4_SOURCES = 
 
 if ELIX_LEVEL_1
 ELIX_SOURCES =
@@ -176,10 +109,7 @@ endif
 endif
 
 # Because of how libtool moves objects around, mallocr must be built last.
-LIBADD_OBJS = $(lpfx)$(FREER).$(oext) $(lpfx)$(REALLOCR).$(oext) \
-	$(lpfx)$(CALLOCR).$(oext) $(lpfx)$(CFREER).$(oext) \
-	$(lpfx)$(MALLINFOR).$(oext) $(lpfx)$(MALLSTATSR).$(oext) \
-	$(lpfx)$(MSIZER).$(oext) $(lpfx)$(MALLOCR).$(oext)
+LIBADD_OBJS =
 
 libstdlib_la_LDFLAGS = -Xcompiler -nostdlib
 
@@ -261,8 +191,6 @@ CHEWOUT_FILES= \
 	ldiv.def	\
 	llabs.def	\
 	lldiv.def	\
-	malloc.def	\
-	$(MALLOCR).def	\
 	mblen.def	\
 	mbsnrtowcs.def	\
 	mbstowcs.def	\

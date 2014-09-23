@@ -23,29 +23,7 @@ GENERAL_SOURCES = 	\
 if ELIX_LEVEL_1
 ELIX_SOURCES =
 else
-ELIX_SOURCES = \
-	isascii.c 	\
-	isblank.c 	\
-	iswalnum.c 	\
-	iswalpha.c 	\
-	iswblank.c 	\
-	iswcntrl.c 	\
-	iswctype.c 	\
-	iswdigit.c 	\
-	iswgraph.c 	\
-	iswlower.c 	\
-	iswprint.c 	\
-	iswpunct.c 	\
-	iswspace.c 	\
-	iswupper.c 	\
-	iswxdigit.c 	\
-	jp2uc.c 	\
-	toascii.c 	\
-	towctrans.c 	\
-	towlower.c 	\
-	towupper.c 	\
-	wctrans.c 	\
-	wctype.c
+ELIX_SOURCES =
 endif
 
 libctype_la_LDFLAGS = -Xcompiler -nostdlib

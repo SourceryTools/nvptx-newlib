@@ -224,6 +224,7 @@ _PTR	_EXFUN_NOTHROW(_malloc_r,(struct _reent *, size_t));
 _PTR	_EXFUN_NOTHROW(_calloc_r,(struct _reent *, size_t, size_t));
 _VOID	_EXFUN_NOTHROW(_free_r,(struct _reent *, _PTR));
 _PTR	_EXFUN_NOTHROW(_realloc_r,(struct _reent *, _PTR, size_t));
+_PTR	_EXFUN_NOTHROW(_realloc_os_r,(struct _reent *, _PTR, size_t, size_t));
 _VOID	_EXFUN(_mstats_r,(struct _reent *, char *));
 #endif
 int	_EXFUN(_system_r,(struct _reent *, const char *));

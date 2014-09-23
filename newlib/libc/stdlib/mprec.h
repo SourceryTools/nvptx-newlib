@@ -411,11 +411,11 @@ int		_EXFUN(hexnan,(_CONST char **sp, _CONST struct FPI *fpi, __ULong *x0));
 
 #define Bcopy(x,y) memcpy((char *)&x->_sign, (char *)&y->_sign, y->_wds*sizeof(__Long) + 2*sizeof(int))
 
-extern _CONST double tinytens[];
-extern _CONST double bigtens[];
-extern _CONST double tens[];
+extern _CONST double tinytens[5];
+extern _CONST double bigtens[5];
+extern _CONST double tens[25];
 #if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__) && !defined(_SMALL_HEXDIG)
-extern _CONST unsigned char __hexdig[];
+extern _CONST unsigned char __hexdig[256];
 #endif /* !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__) && !defined(_SMALL_HEXDIG) */
 
 

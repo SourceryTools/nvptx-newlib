@@ -648,9 +648,9 @@ struct _reent
 
 #define _REENT_INIT(var) \
   { 0, \
-    &(var).__sf[0], \
-    &(var).__sf[1], \
-    &(var).__sf[2], \
+    _NULL, \
+    _NULL, \
+    _NULL, \
     0, \
     "", \
     0, \

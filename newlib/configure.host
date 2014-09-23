@@ -244,6 +244,10 @@ case "${host_cpu}" in
   nios2*)
 	machine_dir=nios2
 	;;
+  nvptx*)
+	newlib_cflags="${newlib_cflags} -DMALLOC_PROVIDED"
+	machine_dir=nvptx
+	;;
   or16)
 	;;
   or32)

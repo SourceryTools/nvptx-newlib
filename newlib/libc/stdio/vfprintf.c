@@ -235,8 +235,8 @@ _DEFUN(__ssputs_r, (ptr, fp, buf, len),
 		}
 		else
 		{
-			str = (unsigned char *)_realloc_r (ptr, fp->_bf._base,
-					newsize);
+			str = (unsigned char *)_realloc_os_r (ptr, fp->_bf._base,
+				newsize, fp->_bf._size);
 			if (!str) {
 				/* Free unneeded buffer.  */
 				_free_r (ptr, fp->_bf._base);
@@ -320,8 +320,8 @@ _DEFUN(__ssprint_r, (ptr, fp, uio),
 			}
 			else
 			{
-				str = (unsigned char *)_realloc_r (ptr, fp->_bf._base,
-						newsize);
+				str = (unsigned char *)_realloc_os_r (ptr, fp->_bf._base,
+					newsize, fp->_bf._size);
 				if (!str) {
 					/* Free unneeded buffer.  */
 					_free_r (ptr, fp->_bf._base);

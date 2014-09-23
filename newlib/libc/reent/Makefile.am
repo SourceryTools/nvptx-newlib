@@ -5,21 +5,13 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
 if HAVE_STDIO64_DIR
-STDIO64_SOURCES = \
-	fstat64r.c \
-	lseek64r.c \
-	stat64r.c \
-	open64r.c
+STDIO64_SOURCES = 
 
-STDIO64_DEFS = \
-	fstat64r.def \
-	lseek64r.def \
-	stat64r.def \
-	open64r.def
+STDIO64_DEFS = 
 endif
 
 ELIX_2_SOURCES = $(STDIO64_SOURCES)
-ELIX_3_SOURCES = execr.c
+ELIX_3_SOURCES = 
 
 if ELIX_LEVEL_1
 ELIX_SOURCES =
@@ -32,27 +24,8 @@ endif
 endif
 
 GENERAL_SOURCES = \
-	closer.c \
 	reent.c \
-	impure.c \
-	fcntlr.c \
-	fstatr.c \
-	getreent.c \
-	gettimeofdayr.c \
-	isattyr.c \
-	linkr.c \
-	lseekr.c \
-	mkdirr.c \
-	openr.c \
-	readr.c \
-	renamer.c \
-	signalr.c \
-	signgam.c \
-	sbrkr.c \
-	statr.c \
-	timesr.c \
-	unlinkr.c \
-	writer.c
+	impure.c 
 
 libreent_la_LDFLAGS = -Xcompiler -nostdlib
 
