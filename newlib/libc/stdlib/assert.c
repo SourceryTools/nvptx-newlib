@@ -56,10 +56,12 @@ _DEFUN (__assert_func, (file, line, func, failedexpr),
 	const char *func _AND
 	const char *failedexpr)
 {
+#ifndef __nvptx__
   fiprintf(stderr,
 	   "assertion \"%s\" failed: file \"%s\", line %d%s%s\n",
 	   failedexpr, file, line,
 	   func ? ", function: " : "", func ? func : "");
+#endif
   abort();
   /* NOTREACHED */
 }
