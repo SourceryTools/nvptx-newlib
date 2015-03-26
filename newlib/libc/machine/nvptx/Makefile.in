@@ -72,7 +72,7 @@ lib_a_LIBADD =
 am_lib_a_OBJECTS = lib_a-calloc.$(OBJEXT) lib_a-callocr.$(OBJEXT) \
 	lib_a-reallocr.$(OBJEXT) lib_a-mallocr.$(OBJEXT) \
 	lib_a-write.$(OBJEXT) puts.$(OBJEXT) putchar.$(OBJEXT) \
-	printf.$(OBJEXT)
+	printf.$(OBJEXT) lib_a-abort.$(OBJEXT) lib_a-exit.$(OBJEXT)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp =
@@ -198,7 +198,7 @@ INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 AM_CCASFLAGS = $(INCLUDES)
 noinst_LIBRARIES = lib.a
 lib_a_SOURCES = calloc.c callocr.c reallocr.c mallocr.c write.c \
-		puts.s putchar.s printf.s
+		puts.s putchar.s printf.s abort.c exit.c
 
 lib_a_CFLAGS = $(AM_CFLAGS)
 ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
@@ -290,6 +290,18 @@ lib_a-write.o: write.c
 
 lib_a-write.obj: write.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-write.obj `if test -f 'write.c'; then $(CYGPATH_W) 'write.c'; else $(CYGPATH_W) '$(srcdir)/write.c'; fi`
+
+lib_a-abort.o: abort.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-abort.o `test -f 'abort.c' || echo '$(srcdir)/'`abort.c
+
+lib_a-abort.obj: abort.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-abort.obj `if test -f 'abort.c'; then $(CYGPATH_W) 'abort.c'; else $(CYGPATH_W) '$(srcdir)/abort.c'; fi`
+
+lib_a-exit.o: exit.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-exit.o `test -f 'exit.c' || echo '$(srcdir)/'`exit.c
+
+lib_a-exit.obj: exit.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-exit.obj `if test -f 'exit.c'; then $(CYGPATH_W) 'exit.c'; else $(CYGPATH_W) '$(srcdir)/exit.c'; fi`
 
 .s.o:
 	$(CCASCOMPILE) -c -o $@ $<
