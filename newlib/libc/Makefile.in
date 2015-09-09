@@ -174,7 +174,7 @@ AM_RECURSIVE_TARGETS = $(RECURSIVE_TARGETS:-recursive=) \
 	$(RECURSIVE_CLEAN_TARGETS:-recursive=) tags TAGS ctags CTAGS
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = stdlib ctype stdio string locale reent errno misc \
+DIST_SUBDIRS = stdlib ctype search stdio string locale reent errno misc \
 	machine .
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
@@ -335,7 +335,7 @@ AUTOMAKE_OPTIONS = cygnus
 
 # The order of SUBDIRS is important for the integrated documentation.
 # Do not change the order without considering the doc impact.
-SUBDIRS = stdlib ctype $(STDIO_SUBDIR) string locale reent errno misc machine .
+SUBDIRS = stdlib ctype search $(STDIO_SUBDIR) string locale reent errno misc machine .
 noinst_DATA = $(CRT0)
 @USE_LIBTOOL_TRUE@noinst_LTLIBRARIES = libc.la
 @USE_LIBTOOL_FALSE@SUBLIBS = \

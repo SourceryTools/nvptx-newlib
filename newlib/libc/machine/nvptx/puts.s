@@ -17,26 +17,22 @@
 
 // BEGIN GLOBAL FUNCTION DEF: puts
 .const .align 1 .u8 $LC0[4] = { 37, 115, 10, 0 };
-.extern .func (.param.u32 %out_retval)printf (.param.u64 %arg0, .param.u64 %arg1);
-.visible .func (.param.u32 %out_retval)puts(.param.u64 %in_ar1)
+.extern .func (.param.u32 retval) vprintf (.param.u64 fmt, .param.u64 valist);
+.visible .func (.param.u32 retval) puts (.param.u64 s)
 {
-	.param.u32 %retval_in;
-	.param.u64 fmt, arg;
-	.reg.u64 r1;
-	.reg.u64 r2;
-	.reg.u64 r3;
-       	.local.b8 %outargs[8];
+	.reg.u64	r1, r2, r3;
+	.param.u32	inretval;
+	.param.u64	fmt, valist;
+       	.local.b64	vaary[1];
 
-	cvta.const.u64 r1, $LC0;
-	ld.param.u64 r2,[%in_ar1];
-	cvta.local.u64  r3, %outargs;
-	st.param.u64 [fmt], r1;
-	st.local.u64 [%outargs], r2;
-	st.param.u64 [arg], r3;
-        {
-                call (%retval_in), printf, (fmt, arg);
-        }
-	ld.param.u64    r1, [%retval_in];
-	st.param.u64	[%out_retval], r1;
+	cvta.const.u64	r1, $LC0;
+	ld.param.u64	r2,[s];
+	st.param.u64	[fmt], r1;
+	st.local.u64	[vaary], r2;
+	cvta.local.u64	r3, vaary;
+	st.param.u64	[valist], r3;
+	call (inretval), vprintf, (fmt, valist);
+	ld.param.u32	r1, [inretval];
+	st.param.u32	[retval], r1;
 }
 // END FUNCTION DEF

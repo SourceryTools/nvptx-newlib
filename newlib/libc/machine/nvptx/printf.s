@@ -19,15 +19,15 @@
 .extern .func (.param.u32 retval) vprintf (.param.u64 fmt, .param.u64 valist);
 .visible .func (.param.u32 retval) printf (.param.u64 fmt, .param.u64 valist)
 {
-	.reg.u64 r1, r2;
-	.param.u64 outfmt, outvalist;
-	.param.u32 inretval;
-	ld.param.u64 r1, [fmt];
-	ld.param.u64 r2, [valist];
-	st.param.u64 [outfmt], r1;
-	st.param.u64 [outvalist], r2;
+	.reg.u64	r1, r2;
+	.param.u64	outfmt, outvalist;
+	.param.u32	inretval;
+	ld.param.u64	r1, [fmt];
+	ld.param.u64	r2, [valist];
+	st.param.u64	[outfmt], r1;
+	st.param.u64	[outvalist], r2;
 	call (inretval), vprintf, (outfmt, outvalist);
-	ld.param.u32 r1, [inretval];
-	st.param.u32 [retval], r1;
+	ld.param.u32	r1, [inretval];
+	st.param.u32	[retval], r1;
 	ret;
 }
