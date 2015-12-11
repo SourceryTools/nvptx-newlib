@@ -25,7 +25,7 @@ putchar (int c)
   c = (unsigned char)c;
   valist[0] = c;
   int ret = vprintf ("%c", valist);
-  if (ret == 1)
-    ret = c;
-  return ret;
+  if (ret < 0)
+    c = -1;
+  return c;
 }
