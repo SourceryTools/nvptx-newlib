@@ -15,9 +15,9 @@
 
 #include <stdlib.h>
 
-void abort (void)
+void __attribute__((noreturn))
+abort (void)
 {
-  asm volatile ("trap;");
-  for (;;)
-    ;
+  for(;;) 
+    exit (255);
 }

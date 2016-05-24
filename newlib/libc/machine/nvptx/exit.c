@@ -15,9 +15,14 @@
 
 #include <stdlib.h>
 
-void exit (int status)
+/* Provided by crt0.  */
+extern int *__attribute__ ((weak)) __exitval_ptr;
+
+void __attribute__((noreturn))
+exit (int status)
 {
-  asm volatile ("exit;");
+  if (&__exitval_ptr && __exitval_ptr)
+    *__exitval_ptr = status;
   for (;;)
-    ;
+    asm ("exit;" ::: "memory");
 }
