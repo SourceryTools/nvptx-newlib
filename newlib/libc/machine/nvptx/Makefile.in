@@ -70,9 +70,11 @@ ARFLAGS = cru
 lib_a_AR = $(AR) $(ARFLAGS)
 lib_a_LIBADD =
 am_lib_a_OBJECTS = lib_a-calloc.$(OBJEXT) lib_a-callocr.$(OBJEXT) \
-	lib_a-reallocr.$(OBJEXT) lib_a-mallocr.$(OBJEXT) \
-	lib_a-write.$(OBJEXT) puts.$(OBJEXT) putchar.$(OBJEXT) \
-	printf.$(OBJEXT) lib_a-abort.$(OBJEXT) lib_a-exit.$(OBJEXT)
+ 	lib_a-free.$(OBJEXT) lib_a-realloc.$(OBJEXT) \
+ 	lib_a-reallocr.$(OBJEXT) lib_a-malloc.$(OBJEXT) \
+ 	lib_a-mallocr.$(OBJEXT) lib_a-write.$(OBJEXT) lib_a-puts.$(OBJEXT) \
+  	lib_a-putchar.$(OBJEXT) lib_a-printf.$(OBJEXT) \
+ 	lib_a-abort.$(OBJEXT) lib_a-exit.$(OBJEXT)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp =
@@ -197,7 +199,8 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 AM_CCASFLAGS = $(INCLUDES)
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = calloc.c callocr.c reallocr.c mallocr.c write.c \
+lib_a_SOURCES = calloc.c callocr.c free.c realloc.c reallocr.c \
+		malloc.c mallocr.c write.c \
 		puts.c putchar.c printf.c abort.c exit.c
 
 lib_a_CFLAGS = $(AM_CFLAGS)
@@ -273,11 +276,29 @@ lib_a-callocr.o: callocr.c
 lib_a-callocr.obj: callocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-callocr.obj `if test -f 'callocr.c'; then $(CYGPATH_W) 'callocr.c'; else $(CYGPATH_W) '$(srcdir)/callocr.c'; fi`
 
+lib_a-free.o: free.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.o `test -f 'free.c' || echo '$(srcdir)/'`free.c
+
+lib_a-free.obj: free.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.obj `if test -f 'free.c'; then $(CYGPATH_W) 'free.c'; else $(CYGPATH_W) '$(srcdir)/free.c'; fi`
+
+lib_a-realloc.o: realloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-realloc.o `test -f 'realloc.c' || echo '$(srcdir)/'`realloc.c
+
+lib_a-realloc.obj: realloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-realloc.obj `if test -f 'realloc.c'; then $(CYGPATH_W) 'realloc.c'; else $(CYGPATH_W) '$(srcdir)/realloc.c'; fi`
+
 lib_a-reallocr.o: reallocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-reallocr.o `test -f 'reallocr.c' || echo '$(srcdir)/'`reallocr.c
 
 lib_a-reallocr.obj: reallocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-reallocr.obj `if test -f 'reallocr.c'; then $(CYGPATH_W) 'reallocr.c'; else $(CYGPATH_W) '$(srcdir)/reallocr.c'; fi`
+
+lib_a-malloc.o: malloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.o `test -f 'malloc.c' || echo '$(srcdir)/'`malloc.c
+
+lib_a-malloc.obj: malloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.obj `if test -f 'malloc.c'; then $(CYGPATH_W) 'malloc.c'; else $(CYGPATH_W) '$(srcdir)/malloc.c'; fi`
 
 lib_a-mallocr.o: mallocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-mallocr.o `test -f 'mallocr.c' || echo '$(srcdir)/'`mallocr.c
@@ -290,6 +311,24 @@ lib_a-write.o: write.c
 
 lib_a-write.obj: write.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-write.obj `if test -f 'write.c'; then $(CYGPATH_W) 'write.c'; else $(CYGPATH_W) '$(srcdir)/write.c'; fi`
+
+lib_a-puts.o: puts.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-puts.o `test -f 'puts.c' || echo '$(srcdir)/'`puts.c
+
+lib_a-puts.obj: puts.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-puts.obj `if test -f 'puts.c'; then $(CYGPATH_W) 'puts.c'; else $(CYGPATH_W) '$(srcdir)/puts.c'; fi`
+
+lib_a-putchar.o: putchar.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-putchar.o `test -f 'putchar.c' || echo '$(srcdir)/'`putchar.c
+
+lib_a-putchar.obj: putchar.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-putchar.obj `if test -f 'putchar.c'; then $(CYGPATH_W) 'putchar.c'; else $(CYGPATH_W) '$(srcdir)/putchar.c'; fi`
+
+lib_a-printf.o: printf.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-printf.o `test -f 'printf.c' || echo '$(srcdir)/'`printf.c
+
+lib_a-printf.obj: printf.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-printf.obj `if test -f 'printf.c'; then $(CYGPATH_W) 'printf.c'; else $(CYGPATH_W) '$(srcdir)/printf.c'; fi`
 
 lib_a-abort.o: abort.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-abort.o `test -f 'abort.c' || echo '$(srcdir)/'`abort.c

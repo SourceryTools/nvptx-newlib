@@ -1,6 +1,6 @@
 /*
  * Support file for nvptx in newlib.
- * Copyright (c) 2014 Mentor Graphics.
+ * Copyright (c) 2014-2016 Mentor Graphics.
  *
  * The authors hereby grant permission to use, copy, modify, distribute,
  * and license this software and its documentation for any purpose, provided
@@ -18,6 +18,8 @@
 void __attribute__((noreturn))
 abort (void)
 {
-  for(;;) 
-    exit (255);
+  /* If anybody cared about the exit code, they should have set it to
+     non-zero in crt0.  */
+  for (;;)
+    asm ("exit;" ::: "memory");
 }

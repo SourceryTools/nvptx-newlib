@@ -1,6 +1,6 @@
 /*
  * Support file for nvptx in newlib.
- * Copyright (c) 2014 Mentor Graphics.
+ * Copyright (c) 2014-2016 Mentor Graphics.
  *
  * The authors hereby grant permission to use, copy, modify, distribute,
  * and license this software and its documentation for any purpose, provided
@@ -15,13 +15,17 @@
 
 #include <stdlib.h>
 
-/* Provided by crt0.  */
-extern int *__attribute__ ((weak)) __exitval_ptr;
+/* Sadly, PTX doesn't support weak declarations, only weak
+   definitions.  Weakly define it here in case we're not using crt0
+   (for instance in offloading).  You probably shouldn't be calling
+   'exit' in an offloaded region anyway, but that'd be a runtime
+   error, not a link error.  */
+int *__attribute((weak)) __exitval_ptr;
 
 void __attribute__((noreturn))
 exit (int status)
 {
-  if (&__exitval_ptr && __exitval_ptr)
+  if (__exitval_ptr)
     *__exitval_ptr = status;
   for (;;)
     asm ("exit;" ::: "memory");
