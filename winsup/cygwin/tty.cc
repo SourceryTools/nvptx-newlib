@@ -1,8 +1,5 @@
 /* tty.cc
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009,
-   2010, 2011, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -237,6 +234,7 @@ tty::init ()
   was_opened = false;
   master_pid = 0;
   is_console = false;
+  column = 0;
 }
 
 HANDLE
@@ -279,5 +277,5 @@ tty_min::ttyname ()
 {
   device d;
   d.parse (ntty);
-  return d.name;
+  return d.name ();
 }

@@ -1,8 +1,5 @@
 /* signal.h
 
-  Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2010, 2011, 2012, 2013
-  Red Hat, Inc.
-
   This file is part of Cygwin.
 
   This software is a copyrighted work licensed under the terms of the
@@ -18,6 +15,10 @@
 extern "C" {
 #endif
 
+/*
+  Define a struct __mcontext, which should be identical in layout to the Win32
+  API type CONTEXT with the addition of oldmask and cr2 fields at the end.
+*/
 #ifdef __x86_64__
 
 struct _uc_fpxreg {
@@ -45,7 +46,7 @@ struct _fpstate
   __uint32_t padding[24];
 };
 
-struct ucontext
+struct __attribute__ ((__aligned__ (16))) __mcontext
 {
   __uint64_t p1home;
   __uint64_t p2home;
@@ -53,7 +54,7 @@ struct ucontext
   __uint64_t p4home;
   __uint64_t p5home;
   __uint64_t p6home;
-  __uint32_t cr2;
+  __uint32_t ctxflags;
   __uint32_t mxcsr;
   __uint16_t cs;
   __uint16_t ds;
@@ -86,14 +87,15 @@ struct ucontext
   __uint64_t r15;
   __uint64_t rip;
   struct _fpstate fpregs;
+  __uint64_t vregs[52];
   __uint64_t vcx;
   __uint64_t dbc;
   __uint64_t btr;
   __uint64_t bfr;
   __uint64_t etr;
   __uint64_t efr;
-  __uint8_t _internal;
   __uint64_t oldmask;
+  __uint64_t cr2;
 };
 
 #else /* !x86_64 */
@@ -117,9 +119,9 @@ struct _fpstate
   __uint32_t nxst;
 };
 
-struct ucontext
+struct __mcontext
 {
-  __uint32_t cr2;
+  __uint32_t ctxflags;
   __uint32_t dr0;
   __uint32_t dr1;
   __uint32_t dr2;
@@ -143,13 +145,20 @@ struct ucontext
   __uint32_t eflags;
   __uint32_t esp;
   __uint32_t ss;
-  __uint8_t _internal;
+  __uint32_t reserved[128];
   __uint32_t oldmask;
+  __uint32_t cr2;
 };
 
 #endif /* !x86_64 */
 
-#define __COPY_CONTEXT_SIZE ((size_t) (uintptr_t) &((struct ucontext *) 0)->_internal)
+/* Needed for GDB.  It only compiles in the context copy code if this macro is
+   defined.  This is not sizeof(CONTEXT) due to historical accidents. */
+#ifdef __x86_64__
+#define __COPY_CONTEXT_SIZE 816
+#else
+#define __COPY_CONTEXT_SIZE 204
+#endif
 
 typedef union sigval
 {
@@ -166,7 +175,10 @@ typedef struct sigevent
   pthread_attr_t *sigev_notify_attributes; /* notification attributes */
 } sigevent_t;
 
+#if __POSIX_VISIBLE >= 199309
+
 #pragma pack(push,4)
+
 struct _sigcommune
 {
   __uint32_t _si_code;
@@ -176,7 +188,7 @@ struct _sigcommune
   __extension__ union
   {
     int _si_fd;
-    void *_si_pipe_fhandler;
+    int64_t _si_pipe_unique_id;
     char *_si_str;
   };
 };
@@ -240,7 +252,10 @@ typedef struct
 #endif /*__INSIDE_CYGWIN__*/
   };
 } siginfo_t;
+
 #pragma pack(pop)
+
+#endif /* __POSIX_VISIBLE >= 199309 */
 
 enum
 {
@@ -250,8 +265,7 @@ enum
   SI_MESGQ,				/* sent by real time mesq state change
 					   (currently unimplemented) */
   SI_TIMER,				/* sent by timer expiration */
-  SI_QUEUE,				/* sent by sigqueue (currently
-					   unimplemented) */
+  SI_QUEUE,				/* sent by sigqueue */
   SI_KERNEL,				/* sent by system */
 
   ILL_ILLOPC,				/* illegal opcode */
@@ -299,22 +313,22 @@ enum
 					   perform notification */
 };
 
-#if __WORDSIZE == 64
-typedef __uint64_t sigset_t;
-#else
-/* FIXME: We should probably raise the # of signals for 32 bit as well.
-          Unfortunately this is an ABI change so requires some forethought. */
-typedef __uint32_t sigset_t;
-#endif
+#define SIGEV_SIGNAL SIGEV_SIGNAL
+#define SIGEV_NONE   SIGEV_NONE
+#define SIGEV_THREAD SIGEV_THREAD
 
 typedef void (*_sig_func_ptr)(int);
+
+#if __POSIX_VISIBLE
 
 struct sigaction
 {
   __extension__ union
   {
     _sig_func_ptr sa_handler;  		/* SIG_DFL, SIG_IGN, or pointer to a function */
+#if __POSIX_VISIBLE >= 199309
     void  (*sa_sigaction) ( int, siginfo_t *, void * );
+#endif
   };
   sigset_t sa_mask;
   int sa_flags;
@@ -326,6 +340,9 @@ struct sigaction
 					   with three arguments instead of one
 					 */
 #define SA_RESTART   0x10000000 	/* Restart syscall on signal return */
+#define SA_ONSTACK   0x20000000		/* Call signal handler on alternate
+					   signal stack provided by
+					   sigaltstack(2). */
 #define SA_NODEFER   0x40000000		/* Don't automatically block the signal
 					   when its handler is being executed  */
 #define SA_RESETHAND 0x80000000		/* Reset to SIG_DFL on entry to handler */
@@ -336,12 +353,24 @@ struct sigaction
    Do not use.  */
 #define _SA_INTERNAL_MASK 0xf000	/* bits in this range are internal */
 
+#endif /* __POSIX_VISIBLE */
+
+#if __BSD_VISIBLE || __XSI_VISIBLE >= 4 || __POSIX_VISIBLE >= 200809
+
+#undef	MINSIGSTKSZ
+#define	MINSIGSTKSZ	 8192
+#undef	SIGSTKSZ
+#define	SIGSTKSZ	32768
+
+#endif /* __BSD_VISIBLE || __XSI_VISIBLE >= 4 || __POSIX_VISIBLE >= 200809 */
+
 #define	SIGHUP	1	/* hangup */
 #define	SIGINT	2	/* interrupt */
 #define	SIGQUIT	3	/* quit */
 #define	SIGILL	4	/* illegal instruction (not reset when caught) */
 #define	SIGTRAP	5	/* trace trap (not reset when caught) */
 #define	SIGABRT 6	/* used by abort */
+#define	SIGIOT	SIGABRT	/* synonym for SIGABRT on most systems */
 #define	SIGEMT	7	/* EMT instruction */
 #define	SIGFPE	8	/* floating point exception */
 #define	SIGKILL	9	/* kill (cannot be caught or ignored) */
@@ -383,20 +412,32 @@ struct sigaction
 
 #define SIG_HOLD ((_sig_func_ptr)2)	/* Signal in signal mask */
 
+#if __POSIX_VISIBLE >= 200809
 void psiginfo (const siginfo_t *, const char *);
+#endif
+#if __POSIX_VISIBLE
 int sigwait (const sigset_t *, int *);
+#endif
+#if __POSIX_VISIBLE >= 199309
 int sigwaitinfo (const sigset_t *, siginfo_t *);
+#endif
+#if __XSI_VISIBLE >= 4
 int sighold (int);
 int sigignore (int);
 int sigrelse (int);
 _sig_func_ptr sigset (int, _sig_func_ptr);
+#endif
 
+#if __POSIX_VISIBLE >= 199309
 int sigqueue(pid_t, int, const union sigval);
+#endif
+#if __BSD_VISIBLE || __XSI_VISIBLE >= 4 || __POSIX_VISIBLE >= 200809
 int siginterrupt (int, int);
+#endif
 #ifdef __INSIDE_CYGWIN__
 extern const char *sys_sigabbrev[];
 extern const char *sys_siglist[];
-#else
+#elif __BSD_VISIBLE
 extern const char __declspec(dllimport) *sys_sigabbrev[];
 extern const char __declspec(dllimport) *sys_siglist[];
 #endif

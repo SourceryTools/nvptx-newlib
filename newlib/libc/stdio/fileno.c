@@ -17,22 +17,32 @@
 
 /*
 FUNCTION
-<<fileno>>---return file descriptor associated with stream
+<<fileno>>, <<fileno_unlocked>>---return file descriptor associated with stream
 
 INDEX
 	fileno
+INDEX
+	fileno_unlocked
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <stdio.h>
 	int fileno(FILE *<[fp]>);
 
-TRAD_SYNOPSIS
+	#define _BSD_SOURCE
 	#include <stdio.h>
-	int fileno(<[fp]>)
-	FILE *<[fp]>;
+	int fileno_unlocked(FILE *<[fp]>);
 
 DESCRIPTION
 You can use <<fileno>> to return the file descriptor identified by <[fp]>.
+
+<<fileno_unlocked>> is a non-thread-safe version of <<fileno>>.
+<<fileno_unlocked>> may only safely be used within a scope
+protected by flockfile() (or ftrylockfile()) and funlockfile().  This
+function may safely be used in a multi-threaded program if and only
+if they are called while the invoking thread owns the (FILE *)
+object, as is the case after a successful call to the flockfile() or
+ftrylockfile() functions.  If threads are disabled, then
+<<fileno_unlocked>> is equivalent to <<fileno>>.
 
 RETURNS
 <<fileno>> returns a non-negative integer when successful.
@@ -41,6 +51,8 @@ If <[fp]> is not an open stream, <<fileno>> returns -1.
 PORTABILITY
 <<fileno>> is not part of ANSI C.
 POSIX requires <<fileno>>.
+
+<<fileno_unlocked>> is a BSD extension also provided by GNU libc.
 
 Supporting OS subroutines required: none.
 */
@@ -51,8 +63,7 @@ Supporting OS subroutines required: none.
 #include "local.h"
 
 int
-_DEFUN(fileno, (f),
-       FILE * f)
+fileno (FILE * f)
 {
   int result;
   CHECK_INIT (_REENT, f);

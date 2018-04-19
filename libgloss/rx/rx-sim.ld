@@ -155,10 +155,26 @@ SECTIONS
   } > RAM
   PROVIDE (__bsssize = SIZEOF(.bss) / 4);
 
+  /* The __stack_size value of 0x100 is just a guess, but since it is
+     PROVIDEd the user can override it on the command line.  It has to be
+     set here, rather than inside the .stack section, as symbols defined
+     inside sections are only evaluated during the final phase of the link,
+     long after the ASSERT is checked.  An ASSERT referencing a PROVIDED but
+     not yet evaluated symbol will automatically fail.
+
+     FIXME: It would be nice if this value could be automatically set via
+     gcc's -fstack-usage command line option somehow.  */
+  PROVIDE (__stack_size = 0x100);
+
   .stack (ORIGIN (STACK)) :
   {
     PROVIDE (__stack = .);
     *(.stack)
+
+    /* Linker section checking ignores empty sections like
+       this one so we have to have our own test here.  */
+    ASSERT ((__stack > (_end + __stack_size)),
+            "Error: Too much data - no room left for the stack");
   } > STACK
 
   /* Providing one of these symbols in your code is sufficient to have
@@ -188,6 +204,7 @@ SECTIONS
   }
 
   /* The rest are all not normally part of the runtime image.  */
+  .note : { *(.note) }
 
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }
@@ -212,7 +229,7 @@ SECTIONS
   /* DWARF 2 */
   .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
   .debug_abbrev   0 : { *(.debug_abbrev) }
-  .debug_line     0 : { *(.debug_line) }
+  .debug_line     0 : { *(.debug_line .debug_line.* .debug_line_end ) }
   .debug_frame    0 : { *(.debug_frame) }
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
@@ -222,5 +239,10 @@ SECTIONS
   .debug_funcnames 0 : { *(.debug_funcnames) }
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
+  /* DWARF 3 */
+  .debug_pubtypes 0 : { *(.debug_pubtypes) }
+  .debug_ranges   0 : { *(.debug_ranges) }
+  /* DWARF Extension.  */
+  .debug_macro    0 : { *(.debug_macro) }
   /DISCARD/ : { *(.note.GNU-stack) }
 }

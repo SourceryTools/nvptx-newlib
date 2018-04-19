@@ -7,27 +7,30 @@
 
 /*
 FUNCTION
-	<<strerror>>---convert error number to string
+	<<strerror>>, <<strerror_l>>---convert error number to string
 
 INDEX
 	strerror
 
-ANSI_SYNOPSIS
+INDEX
+	strerror_l
+
+SYNOPSIS
 	#include <string.h>
 	char *strerror(int <[errnum]>);
+	char *strerror_l(int <[errnum]>, locale_t <[locale]>);
 	char *_strerror_r(struct _reent <[ptr]>, int <[errnum]>,
 			  int <[internal]>, int *<[error]>);
-
-TRAD_SYNOPSIS
-	#include <string.h>
-	char *strerror(<[errnum]>)
-	int <[errnum]>;
 
 DESCRIPTION
 <<strerror>> converts the error number <[errnum]> into a
 string.  The value of <[errnum]> is usually a copy of <<errno>>.
 If <<errnum>> is not a known error number, the result points to an
 empty string.
+
+<<strerror_l>> is like <<strerror>> but creates a string in a format
+as expected in locale <[locale]>.  If <[locale]> is LC_GLOBAL_LOCALE or
+not a valid locale object, the behaviour is undefined.
 
 This implementation of <<strerror>> prints out the following strings
 for each of the values defined in `<<errno.h>>':
@@ -44,6 +47,9 @@ Permission denied
 
 o EADDRINUSE
 Address already in use
+
+o EADDRNOTAVAIL
+Address not available
 
 o EADV
 Advertise error
@@ -66,6 +72,9 @@ Bad message
 o EBUSY
 Device or resource busy
 
+o ECANCELED
+Operation canceled
+
 o ECHILD
 No children
 
@@ -78,6 +87,9 @@ Software caused connection abort
 o ECONNREFUSED
 Connection refused
 
+o ECONNRESET
+Connection reset by peer
+
 o EDEADLK
 Deadlock
 
@@ -88,7 +100,7 @@ o EEXIST
 File exists
 
 o EDOM
-Math argument
+Mathematics argument out of domain of function
 
 o EFAULT
 Bad address
@@ -104,6 +116,9 @@ Host is unreachable
 
 o EIDRM
 Identifier removed
+
+o EILSEQ
+Illegal byte sequence
 
 o EINPROGRESS
 Connection already in progress
@@ -139,7 +154,7 @@ o ELIBSCN
 <<.lib>> section in a.out corrupted
 
 o EMFILE
-Too many open files
+File descriptor value too large
 
 o EMLINK
 Too many links
@@ -154,13 +169,22 @@ o ENAMETOOLONG
 File or path name too long
 
 o ENETDOWN
-Network interface not configured
+Network interface is not configured
+
+o ENETRESET
+Connection aborted by network
 
 o ENETUNREACH
 Network is unreachable
 
 o ENFILE
 Too many open files in system
+
+o ENOBUFS
+No buffer space available
+
+o ENODATA
+No data
 
 o ENODEV
 No such device
@@ -216,6 +240,9 @@ Not a directory
 o ENOTEMPTY
 Directory not empty
 
+o ENOTRECOVERABLE
+State not recoverable
+
 o ENOTSOCK
 Socket operation on non-socket
 
@@ -227,6 +254,15 @@ Not a character device
 
 o ENXIO
 No such device or address
+
+o EOPNOTSUPP
+Operation not supported on socket
+
+o EOVERFLOW
+Value too large for defined data type
+
+o EOWNERDEAD
+Previous owner died
 
 o EPERM
 Not owner
@@ -267,6 +303,9 @@ No such process
 o ESRMNT
 Srmount error
 
+o ESTRPIPE
+Strings pipe error
+
 o ETIME
 Stream ioctl timeout
 
@@ -276,20 +315,11 @@ Connection timed out
 o ETXTBSY
 Text file busy
 
+o EWOULDBLOCK
+Operation would block (usually same as EAGAIN)
+
 o EXDEV
 Cross-device link
-
-o ECANCELED
-Operation canceled
-
-o ENOTRECOVERABLE
-State not recoverable
-
-o EOWNERDEAD
-Previous owner died
-
-o ESTRPIPE
-Strings pipe error
 
 o-
 
@@ -302,6 +332,8 @@ not modify that string.
 PORTABILITY
 ANSI C requires <<strerror>>, but does not specify the strings used
 for each error number.
+
+<<strerror_l>> is POSIX-1.2008.
 
 Although this implementation of <<strerror>> is reentrant (depending
 on <<_user_strerror>>), ANSI C declares that subsequent calls to
@@ -353,14 +385,13 @@ QUICKREF
 #include <string.h>
 
 char *
-_DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
-	struct _reent *ptr _AND
-	int errnum _AND
-	int internal _AND
+_strerror_r (struct _reent *ptr,
+	int errnum,
+	int internal,
 	int *errptr)
 {
   char *error;
-  extern char *_user_strerror _PARAMS ((int, int, int *));
+  extern char *_user_strerror (int, int, int *);
 
   switch (errnum)
     {
@@ -504,6 +535,11 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
       error = "Network interface is not configured";
       break;
 #endif
+#ifdef ENETRESET
+    case ENETRESET:
+      error = "Connection aborted by network";
+      break;
+#endif
 #ifdef ENFILE
     case ENFILE:
       error = "Too many open files in system";
@@ -511,7 +547,7 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
 #endif
 #ifdef EMFILE
     case EMFILE:
-      error = "Too many open files";
+      error = "File descriptor value too large";
       break;
 #endif
 #ifdef ENOTTY
@@ -566,7 +602,7 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
 #endif
 #ifdef EDOM
     case EDOM:
-      error = "Math argument";
+      error = "Mathematics argument out of domain of function";
       break;
 #endif
 #ifdef ERANGE
@@ -582,6 +618,11 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
 #ifdef EIDRM
     case EIDRM:
       error = "Identifier removed";
+      break;
+#endif
+#ifdef EILSEQ
+    case EILSEQ:
+      error = "Illegal byte sequence";
       break;
 #endif
 #ifdef EDEADLK
@@ -724,6 +765,11 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
       error = "No buffer space available";
       break;
 #endif
+#ifdef ENODATA
+    case ENODATA:
+      error = "No data";
+      break;
+#endif
 #ifdef EAFNOSUPPORT
     case EAFNOSUPPORT:
       error = "Address family not supported by protocol family";
@@ -754,9 +800,19 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
       error = "Connection refused";
       break;
 #endif
+#ifdef ECONNRESET
+    case ECONNRESET:
+      error = "Connection reset by peer";
+      break;
+#endif
 #ifdef EADDRINUSE
     case EADDRINUSE:
       error = "Address already in use";
+      break;
+#endif
+#ifdef EADDRNOTAVAIL
+    case EADDRNOTAVAIL:
+      error = "Address not available";
       break;
 #endif
 #ifdef ECONNABORTED
@@ -809,6 +865,11 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
         error = "Operation not supported on socket";
         break;
 #endif
+#ifdef EOVERFLOW
+    case EOVERFLOW:
+      error = "Value too large for defined data type";
+      break;
+#endif
 #ifdef EMSGSIZE
     case EMSGSIZE:
         error = "Message too long";
@@ -831,8 +892,14 @@ _DEFUN (_strerror_r, (ptr, errnum, internal, errptr),
 }
 
 char *
-_DEFUN(strerror, (int),
-       int errnum)
+strerror (int errnum)
 {
+  return _strerror_r (_REENT, errnum, 0, NULL);
+}
+
+char *
+strerror_l (int errnum, locale_t locale)
+{
+  /* We don't support per-locale error messages. */
   return _strerror_r (_REENT, errnum, 0, NULL);
 }

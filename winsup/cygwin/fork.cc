@@ -1,8 +1,5 @@
 /* fork.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -146,15 +143,11 @@ frok::child (volatile char * volatile here)
 		myself->pid, myself->ppid, __builtin_frame_address (0));
   sigproc_printf ("hParent %p, load_dlls %d", hParent, load_dlls);
 
-  /* If we've played with the stack, stacksize != 0.  That means that
-     fork() was invoked from other than the main thread.  Make sure that
-     the threadinfo information is properly set up.  */
-  if (fork_info->stackaddr)
+  /* Make sure threadinfo information is properly set up. */
+  if (&_my_tls != _main_tls)
     {
       _main_tls = &_my_tls;
       _main_tls->init_thread (NULL, NULL);
-      _main_tls->local_clib = *_impure_ptr;
-      _impure_ptr = &_main_tls->local_clib;
     }
 
   set_cygwin_privileges (hProcToken);
@@ -174,8 +167,6 @@ frok::child (volatile char * volatile here)
     }
 #endif
 
-  MALLOC_CHECK;
-
   /* Incredible but true:  If we use sockets and SYSV IPC shared memory,
      there's a good chance that a duplicated socket in the child occupies
      memory which is needed to duplicate shared memory from the parent
@@ -185,8 +176,6 @@ frok::child (volatile char * volatile here)
      fdtab before fixing up shared memory. */
   if (fixup_shms_after_fork ())
     api_fatal ("recreate_shm areas after fork failed");
-
-  MALLOC_CHECK;
 
   /* If we haven't dynamically loaded any dlls, just signal
      the parent.  Otherwise, load all the dlls, tell the parent
@@ -307,30 +296,33 @@ frok::parent (volatile char * volatile stack_here)
 
   ch.forker_finished = forker_finished;
 
-  PTEB teb = NtCurrentTeb ();
-  ch.stackbottom = _tlsbase;
-  ch.stacktop = (void *) _tlstop;
-  ch.stackaddr = teb->DeallocationStack;
-  ch.guardsize = 0;
-  if (&_my_tls != _main_tls)
+  ch.stackbase = NtCurrentTeb ()->Tib.StackBase;
+  ch.stackaddr = NtCurrentTeb ()->DeallocationStack;
+  if (!ch.stackaddr)
     {
-      /* We have not been started from the main thread.  Fetch the
-	 information required to set up the thread stack identically
-	 in the child. */
-      if (!ch.stackaddr)
-	{
-	  /* Pthread with application-provided stack.  Don't set up a
-	     PAGE_GUARD page.  guardsize == -1 is used in alloc_stack_hard_way
-	     to recognize this type of stack. */
-	  ch.stackaddr = _my_tls.tid->attr.stackaddr;
-	  ch.guardsize = (size_t) -1;
-	}
-      else if (_my_tls.tid)
-	/* If it's a pthread, fetch guardsize from thread attributes. */
-	ch.guardsize = _my_tls.tid->attr.guardsize;
+      /* If DeallocationStack is NULL, we're running on an application-provided
+	 stack.  If so, the entire stack is committed anyway and StackLimit
+	 points to the allocation address of the stack.  Mark in guardsize that
+	 we must not set up guard pages. */
+      ch.stackaddr = ch.stacklimit = NtCurrentTeb ()->Tib.StackLimit;
+      ch.guardsize = (size_t) -1;
+    }
+  else
+    {
+      /* Otherwise we're running on a system-allocated stack.  Since stack_here
+	 is the address of the stack pointer we start the child with anyway, we
+	 can set ch.stacklimit to this value rounded down to page size.  The
+	 child will not need the rest of the stack anyway.  Guardsize depends
+	 on whether we're running on a pthread or not.  If pthread, we fetch
+	 the guardpage size from the pthread attribs, otherwise we use the
+	 system default. */
+      ch.stacklimit = (void *) ((uintptr_t) stack_here & ~wincap.page_size ());
+      ch.guardsize = (&_my_tls != _main_tls && _my_tls.tid)
+		     ? _my_tls.tid->attr.guardsize
+		     : wincap.def_guard_page_size ();
     }
   debug_printf ("stack - bottom %p, top %p, addr %p, guardsize %ly",
-		ch.stackbottom, ch.stacktop, ch.stackaddr, ch.guardsize);
+		ch.stackbase, ch.stacklimit, ch.stackaddr, ch.guardsize);
 
   PROCESS_INFORMATION pi;
   STARTUPINFOW si;
@@ -459,7 +451,6 @@ frok::parent (volatile char * volatile stack_here)
      Note: variables marked as NO_COPY will not be copied since they are
      placed in a protected segment.  */
 
-  MALLOC_CHECK;
   const void *impure_beg;
   const void *impure_end;
   const char *impure;
@@ -472,13 +463,12 @@ frok::parent (volatile char * volatile stack_here)
       impure_end = _impure_ptr + 1;
     }
   rc = child_copy (hchild, true,
-		   "stack", stack_here, ch.stackbottom,
+		   "stack", stack_here, ch.stackbase,
 		   impure, impure_beg, impure_end,
 		   NULL);
 
   __malloc_unlock ();
   locked = false;
-  MALLOC_CHECK;
   if (!rc)
     {
       this_errno = get_errno ();
@@ -618,7 +608,6 @@ fork ()
       }
   }
 
-  MALLOC_CHECK;
   if (ischild)
     {
       myself->process_state |= PID_ACTIVE;
@@ -629,13 +618,8 @@ fork ()
       if (!grouped.errmsg)
 	syscall_printf ("fork failed - child pid %d, errno %d", grouped.child_pid, grouped.this_errno);
       else
-	{
-	  char buf[strlen (grouped.errmsg) + sizeof ("child %d - , errno 4294967295  ")];
-	  strcpy (buf, "child %d - ");
-	  strcat (buf, grouped.errmsg);
-	  strcat (buf, ", errno %d");
-	  system_printf (buf, grouped.child_pid, grouped.this_errno);
-	}
+	system_printf ("child %d - %s, errno %d", grouped.child_pid,
+		       grouped.errmsg, grouped.this_errno);
 
       set_errno (grouped.this_errno);
     }
@@ -679,7 +663,7 @@ child_copy (HANDLE hp, bool write, ...)
 	  SIZE_T done = 0;
 	  if (here + todo > high)
 	    todo = high - here;
-	  int res;
+	  BOOL res;
 	  if (write)
 	    res = WriteProcessMemory (hp, here, here, todo, &done);
 	  else

@@ -7,16 +7,10 @@ INDEX
 INDEX
 	_tzset_r
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <time.h>
 	void tzset(void);
-	void _tzset_r (struct _reent *);
-
-TRAD_SYNOPSIS
-	#include <time.h>
-	void tzset();
-	void _tzset_r (reent_ptr)
-        struct _reent *reent_ptr;
+	void _tzset_r (struct _reent *<[reent_ptr]>);
 
 DESCRIPTION
 <<tzset>> examines the TZ environment variable and sets up the three
@@ -67,8 +61,16 @@ Supporting OS subroutine required: None
 #include <time.h>
 #include "local.h"
 
-_VOID
-_DEFUN_VOID (tzset)
+void
+_tzset_unlocked (void)
 {
-  _tzset_r (_REENT);
+  _tzset_unlocked_r (_REENT);
+}
+
+void
+tzset (void)
+{
+  TZ_LOCK;
+  _tzset_unlocked_r (_REENT);
+  TZ_UNLOCK;
 }

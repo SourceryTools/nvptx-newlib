@@ -6,15 +6,18 @@
 
 <sect2 id="pathnames-intro"><title>Introduction</title>
 
-<para>Cygwin supports both POSIX- and Win32-style paths.  Directory
+<para>The Cygwin DLL supports both POSIX- and Win32-style paths.  Directory
 delimiters may be either forward slashes or backslashes.  Paths using
 backslashes or starting with a drive letter are always handled as
 Win32 paths.  POSIX paths must only use forward slashes as delimiter,
 otherwise they are treated as Win32 paths and file access might fail
 in surprising ways.</para>
 
-<note><para>The usage of Win32 paths, though possible, is deprecated,
-since it circumvents important internal path handling mechanisms. 
+<note><para>Although the Cygwin DLL supports Win32 paths, not all
+Cygwin applications support them.  Moreover, the usage of Win32 paths
+circumvents important internal path handling mechanisms.  This usage
+is therefore strongly deprecated and may be removed in a future
+release of Cygwin.
 See <xref linkend="pathnames-win32"></xref> and
 <xref linkend="pathnames-win32-api"></xref> for more information.
 </para></note>
@@ -44,7 +47,9 @@ all users.  Sometimes there's a requirement to have user specific
 mount points.  The Cygwin DLL supports user specific fstab files.
 These are stored in the directory <filename>/etc/fstab.d</filename>
 and the name of the file is the Cygwin username of the user, as it's
-stored in the <filename>/etc/passwd</filename> file.  The structure of the
+created from the Windows account database or stored in the
+<filename>/etc/passwd</filename> file (see
+<xref linkend="ntsec-mapping"></xref>).  The structure of the
 user specific file is identical to the system-wide
 <filename>fstab</filename> file.</para>
 
@@ -72,16 +77,16 @@ doesn't matter if you write <literal>FAT</literal> into this field even if
 the filesystem is NTFS.  Cygwin figures out the filesystem type and its
 capabilities by itself.</para>
 
-<para>The only exception is the file system type cygdrive.  This type is
-used to set the cygdrive prefix.  For a description of the cygdrive prefix
-see <xref linkend="cygdrive"></xref></para>
+<para>The only two exceptions are the file system types cygdrive and usertemp.
+The cygdrive type is used to set the cygdrive prefix.  For a description of
+the cygdrive prefix see <xref linkend="cygdrive"></xref>, for a description of
+the usertemp file system type see <xref linkend="usertemp"></xref></para>
 
 <para>The fourth field describes the mount options associated
 with the filesystem.  It is formatted as a comma separated list of
 options.  It contains at least the type of mount (binary or text) plus
-any additional options appropriate to the filesystem type.  Recognized
-options are binary, text, nouser, user, exec, notexec, cygexec, nosuid,
-posix=[0|1].  The meaning of the options is as follows.</para>
+any additional options appropriate to the filesystem type.  The list of
+the options, including their meaning, follows.</para>
 
 <screen>
   acl       - Cygwin uses the filesystem's access control lists (ACLs) to
@@ -134,14 +139,14 @@ executability, this is not possible on filesystems which don't support
 permissions at all (like FAT/FAT32), or if ACLs are ignored on filesystems
 supporting them (see the aforementioned <literal>acl</literal> mount option).
 In these cases, the following heuristic is used to evaluate if a file is
-executable: Files ending in certain extensions (.exe, .com, .bat, .btm,
-.cmd) are assumed to be executable.  Files whose first two characters begin
-with '#!' are also considered to be executable.
+executable: Files ending in certain extensions (.exe, .com, .lnk) are
+assumed to be executable.  Files whose first two characters are "#!", "MZ",
+or ":\n" are also considered to be executable.
 The <literal>exec</literal> option is used to instruct Cygwin that the
 mounted file is "executable".  If the <literal>exec</literal> option is used
 with a directory then all files in the directory are executable.
 This option allows other files to be marked as executable and avoids the
-overhead of opening each file to check for a '#!'.  The
+overhead of opening each file to check for "magic" bytes.  The
 <literal>cygexec</literal> option is very similar to <literal>exec</literal>,
 but also prevents Cygwin from setting up commands and environment variables
 for a normal Windows program, adding another small performance gain.  The
@@ -254,27 +259,6 @@ points will disappear as soon as your last Cygwin process ends.
 See <xref linkend="mount"></xref> and <xref linkend="umount"></xref> for more
 information.</para>
 
-<note><para>
-When you upgrade an existing older Cygwin installation to Cygwin 1.7,
-your old system mount points (stored in the HKEY_LOCAL_MACHINE branch
-of your registry) are read by a script and the <filename>/etc/fstab</filename>
-file is generated from these entries.  Note that entries for
-<filename>/</filename>, <filename>/usr/bin</filename>, and
-<filename>/usr/lib</filename> are <emphasis role='bold'>never</emphasis>
-generated.
-</para>
-
-<para>
-The old user mount points in your HKEY_CURRENT_USER branch of the registry
-are not used to generate <filename>/etc/fstab</filename>.  If you want
-to create a user specific <filename>/etc/fstab.d/${USER}</filename> file
-from your old entries, there's a script available which does exactly
-that for you, <filename>/bin/copy-user-registry-fstab</filename>.  Just
-start the script and it will create your user specific fstab file.  Stop
-all your Cygwin processes and restart them, and you can simply use your
-old user mount points as before.
-</para></note>
-
 </sect2>
 
 <sect2 id="unc-paths"><title>UNC paths</title>
@@ -353,6 +337,42 @@ the cygdrive prefix, use a distinct path prefix:</para>
   D:   /mnt/d somefs text 0 0
 </screen>
 
+<para>To simplify scripting, Cygwin also provides a
+<filename>/proc/cygdrive</filename> symlink, which allows to use a fixed path
+in scripts, even if the actual cygdrive prefix has been changed, or is different
+between different users.  So, in scripts, conveniently use the
+<filename>/proc/cygdrive</filename> symlink to successfully access files
+independently from the current cygdrive prefix:</para>
+
+<screen>
+  $ mount -p
+  Prefix              Type         Flags
+  /mnt                user         binmode
+  $ cat &gt; x.sh &lt;&lt;EOF
+  cd /proc/cygdrive/c/Windows/System32/Drivers/etc
+  ls -l hosts
+  EOF
+  $ sh -c ./x.sh
+  -rwxrwx---+ 1 SYSTEM SYSTEM 826 Sep  4 22:43 hosts
+</screen>
+
+</sect2>
+
+<sect2 id="usertemp"><title>The usertemp file system type</title>
+
+<para>On Windows, the environment variable <literal>TEMP</literal> specifies
+the location of the temp folder.  It serves the same purpose as the /tmp/
+directory in Unix systems.  In contrast to /tmp/, it is by default a
+different folder for every Windows user.  By using the special purpose usertemp
+file system, that temp folder can be mapped to /tmp/.  This is particularly
+useful in setups where the administrator wants to write-protect the entire
+Cygwin directory.  The usertemp file system can be configured in /etc/fstab
+like this:</para>
+
+<screen>
+  none /tmp usertemp binary,posix=0 0 0
+</screen>
+
 </sect2>
 
 <sect2 id="pathnames-symlinks"><title>Symbolic links</title>
@@ -374,14 +394,13 @@ followed by the path to which the link points.  They are marked with the
 DOS SYSTEM attribute so that only files with that attribute have to be
 read to determine whether or not the file is a symbolic link.</para>
 
-<note><para>Starting with Cygwin 1.7, symbolic links are using UTF-16 to encode
-the filename of the target file, to better support internationalization.
-Symlinks created by older Cygwin releases can be read just fine.  However,
-you could run into problems with them if you're now using another character
-set than the one you used when creating these symlinks
-(see <xref linkend="setup-locale-problems"></xref>).  Please note that this
-new UTF-16 style of symlinks is not compatible with older Cygwin release,
-which can't read the target filename correctly.</para></note>
+<note><para>Cygwin symbolic links are using UTF-16 to encode the filename of
+the target file, to better support internationalization.  Symlinks created by
+old Cygwin releases can be read just fine.  However, you could run into
+problems with them if you're now using another character set than the one you
+used when creating these symlinks
+(see <xref linkend="setup-locale-problems"></xref>).
+</para></note>
 </listitem>
 
 <listitem>
@@ -408,6 +427,9 @@ these two settings, see <xref linkend="using-cygwinenv"></xref>.
 On AFS, native symlinks are the only supported type of symlink due to
 AFS lacking support for DOS attributes.  This is independent from the
 <literal>winsymlinks</literal> setting.</para>
+<para>Creation of native symlinks follows special rules to ensure the links
+are usable outside of Cygwin. This includes dereferencing any Cygwin-only
+symlinks that lie in the target path.</para>
 </listitem>
 
 <listitem>
@@ -432,11 +454,12 @@ filesystem borders by commands like <command>find -xdev</command>.</para>
 
 <sect2 id="pathnames-win32"><title>Using native Win32 paths</title>
 
-<para>Using native Win32 paths in Cygwin, while possible, is generally
+<para>Using native Win32 paths in Cygwin, while often possible, is generally
 inadvisable.  Those paths circumvent all internal integrity checking and
 bypass the information given in the Cygwin mount table.</para>
 
-<para>The following paths are treated as native Win32 paths in Cygwin:</para>
+<para>The following paths are treated as native Win32 paths by the
+Cygwin DLL (but not necessarily by Cygwin applications):</para>
 
 <itemizedlist spacing="compact">
   <listitem>

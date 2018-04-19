@@ -1,8 +1,5 @@
 /* errno.cc: errno-related functions
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -34,12 +31,7 @@ details. */
 
 #define X(w, e) {ERROR_##w, #w, e}
 
-static const struct
-{
-  DWORD w;		 /* windows version of error */
-  const char *s;	 /* text of windows version */
-  int e;		 /* errno version of error */
-} errmap[] =
+static const errmap_t errmap[] =
 {
   /* FIXME: Some of these choices are arbitrary! */
   X (ACCESS_DENIED,		EACCES),
@@ -363,13 +355,6 @@ seterrno_from_nt_status (const char *file, int line, NTSTATUS status)
   errno = _impure_ptr->_errno =  geterrno_from_win_error (code, EACCES);
 }
 
-/* seterrno: Set `errno' based on GetLastError (). */
-void __reg2
-seterrno (const char *file, int line)
-{
-  seterrno_from_win_error (file, line, GetLastError ());
-}
-
 static char *
 strerror_worker (int errnum)
 {
@@ -411,6 +396,13 @@ strerror (int errnum)
   if (error)
     set_errno (error);
   return result;
+}
+
+extern "C" char *
+strerror_l (int errnum, locale_t locale)
+{
+  /* We don't provide localized system error messages (yet?). */
+  return strerror (errnum);
 }
 
 /* Newlib's <string.h> provides declarations for two strerror_r

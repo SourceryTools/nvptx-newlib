@@ -73,26 +73,44 @@ ARFLAGS = cru
 lib_a_AR = $(AR) $(ARFLAGS)
 lib_a_LIBADD =
 am__objects_1 = lib_a-bcopy.$(OBJEXT) lib_a-bzero.$(OBJEXT) \
-	lib_a-index.$(OBJEXT) lib_a-memchr.$(OBJEXT) \
-	lib_a-memcmp.$(OBJEXT) lib_a-memcpy.$(OBJEXT) \
-	lib_a-memmove.$(OBJEXT) lib_a-memset.$(OBJEXT) \
-	lib_a-rindex.$(OBJEXT) lib_a-strcasecmp.$(OBJEXT) \
-	lib_a-strcat.$(OBJEXT) lib_a-strchr.$(OBJEXT) \
-	lib_a-strcmp.$(OBJEXT) lib_a-strcoll.$(OBJEXT) \
-	lib_a-strcpy.$(OBJEXT) lib_a-strcspn.$(OBJEXT) \
-	lib_a-strdup.$(OBJEXT) lib_a-strdup_r.$(OBJEXT) \
-	lib_a-strerror.$(OBJEXT) lib_a-strerror_r.$(OBJEXT) \
-	lib_a-strlcat.$(OBJEXT) lib_a-strlcpy.$(OBJEXT) \
-	lib_a-strlen.$(OBJEXT) lib_a-strlwr.$(OBJEXT) \
-	lib_a-strncasecmp.$(OBJEXT) lib_a-strncat.$(OBJEXT) \
-	lib_a-strncmp.$(OBJEXT) lib_a-strncpy.$(OBJEXT) \
-	lib_a-strnlen.$(OBJEXT) lib_a-strpbrk.$(OBJEXT) \
+	lib_a-explicit_bzero.$(OBJEXT) lib_a-ffsl.$(OBJEXT) \
+	lib_a-ffsll.$(OBJEXT) lib_a-fls.$(OBJEXT) lib_a-flsl.$(OBJEXT) \
+	lib_a-flsll.$(OBJEXT) lib_a-index.$(OBJEXT) \
+	lib_a-memchr.$(OBJEXT) lib_a-memcmp.$(OBJEXT) \
+	lib_a-memcpy.$(OBJEXT) lib_a-memmove.$(OBJEXT) \
+	lib_a-memset.$(OBJEXT) lib_a-rindex.$(OBJEXT) \
+	lib_a-strcasecmp.$(OBJEXT) lib_a-strcat.$(OBJEXT) \
+	lib_a-strchr.$(OBJEXT) lib_a-strcmp.$(OBJEXT) \
+	lib_a-strcoll.$(OBJEXT) lib_a-strcpy.$(OBJEXT) \
+	lib_a-strcspn.$(OBJEXT) lib_a-strdup.$(OBJEXT) \
+	lib_a-strdup_r.$(OBJEXT) lib_a-strerror.$(OBJEXT) \
+	lib_a-strerror_r.$(OBJEXT) lib_a-strlcat.$(OBJEXT) \
+	lib_a-strlcpy.$(OBJEXT) lib_a-strlen.$(OBJEXT) \
+	lib_a-strlwr.$(OBJEXT) lib_a-strncasecmp.$(OBJEXT) \
+	lib_a-strncat.$(OBJEXT) lib_a-strncmp.$(OBJEXT) \
+	lib_a-strncpy.$(OBJEXT) lib_a-strnlen.$(OBJEXT) \
+	lib_a-strnstr.$(OBJEXT) lib_a-strpbrk.$(OBJEXT) \
 	lib_a-strrchr.$(OBJEXT) lib_a-strsep.$(OBJEXT) \
 	lib_a-strsignal.$(OBJEXT) lib_a-strspn.$(OBJEXT) \
 	lib_a-strtok.$(OBJEXT) lib_a-strtok_r.$(OBJEXT) \
 	lib_a-strupr.$(OBJEXT) lib_a-strxfrm.$(OBJEXT) \
 	lib_a-strstr.$(OBJEXT) lib_a-swab.$(OBJEXT) \
-	lib_a-u_strerr.$(OBJEXT)
+	lib_a-timingsafe_bcmp.$(OBJEXT) \
+	lib_a-timingsafe_memcmp.$(OBJEXT) lib_a-u_strerr.$(OBJEXT) \
+	lib_a-wcscat.$(OBJEXT) lib_a-wcschr.$(OBJEXT) \
+	lib_a-wcscmp.$(OBJEXT) lib_a-wcscoll.$(OBJEXT) \
+	lib_a-wcscpy.$(OBJEXT) lib_a-wcscspn.$(OBJEXT) \
+	lib_a-wcslcat.$(OBJEXT) lib_a-wcslcpy.$(OBJEXT) \
+	lib_a-wcslen.$(OBJEXT) lib_a-wcsncat.$(OBJEXT) \
+	lib_a-wcsncmp.$(OBJEXT) lib_a-wcsncpy.$(OBJEXT) \
+	lib_a-wcsnlen.$(OBJEXT) lib_a-wcspbrk.$(OBJEXT) \
+	lib_a-wcsrchr.$(OBJEXT) lib_a-wcsspn.$(OBJEXT) \
+	lib_a-wcsstr.$(OBJEXT) lib_a-wcstok.$(OBJEXT) \
+	lib_a-wcswidth.$(OBJEXT) lib_a-wcsxfrm.$(OBJEXT) \
+	lib_a-wcwidth.$(OBJEXT) lib_a-wmemchr.$(OBJEXT) \
+	lib_a-wmemcmp.$(OBJEXT) lib_a-wmemcpy.$(OBJEXT) \
+	lib_a-wmemmove.$(OBJEXT) lib_a-wmemset.$(OBJEXT) \
+	lib_a-xpg_strerror_r.$(OBJEXT)
 @ELIX_LEVEL_1_FALSE@am__objects_2 = lib_a-bcmp.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-memccpy.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-mempcpy.$(OBJEXT) \
@@ -100,30 +118,67 @@ am__objects_1 = lib_a-bcopy.$(OBJEXT) lib_a-bzero.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-stpncpy.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-strndup.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-strcasestr.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@	lib_a-strchrnul.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-strndup_r.$(OBJEXT) \
-@ELIX_LEVEL_1_FALSE@	lib_a-strchrnul.$(OBJEXT)
-@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@am__objects_3 = lib_a-memmem.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@	lib_a-wcpcpy.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@	lib_a-wcpncpy.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@	lib_a-wcsdup.$(OBJEXT)
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@am__objects_3 = lib_a-gnu_basename.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-memmem.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-memrchr.$(OBJEXT) \
-@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-rawmemchr.$(OBJEXT)
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-rawmemchr.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-strcasecmp_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-strcoll_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-strncasecmp_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-strverscmp.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-strxfrm_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcscasecmp.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcscasecmp_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcscoll_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcsncasecmp.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcsncasecmp_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wcsxfrm_l.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	lib_a-wmempcpy.$(OBJEXT)
 @USE_LIBTOOL_FALSE@am_lib_a_OBJECTS = $(am__objects_1) \
 @USE_LIBTOOL_FALSE@	$(am__objects_2) $(am__objects_3)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 libstring_la_LIBADD =
-am__objects_4 = bcopy.lo bzero.lo index.lo memchr.lo memcmp.lo \
-	memcpy.lo memmove.lo memset.lo rindex.lo strcasecmp.lo \
-	strcat.lo strchr.lo strcmp.lo strcoll.lo strcpy.lo strcspn.lo \
-	strdup.lo strdup_r.lo strerror.lo strerror_r.lo strlcat.lo \
-	strlcpy.lo strlen.lo strlwr.lo strncasecmp.lo strncat.lo \
-	strncmp.lo strncpy.lo strnlen.lo strpbrk.lo strrchr.lo \
+am__objects_4 = bcopy.lo bzero.lo explicit_bzero.lo ffsl.lo ffsll.lo \
+	fls.lo flsl.lo flsll.lo index.lo memchr.lo memcmp.lo memcpy.lo \
+	memmove.lo memset.lo rindex.lo strcasecmp.lo strcat.lo \
+	strchr.lo strcmp.lo strcoll.lo strcpy.lo strcspn.lo strdup.lo \
+	strdup_r.lo strerror.lo strerror_r.lo strlcat.lo strlcpy.lo \
+	strlen.lo strlwr.lo strncasecmp.lo strncat.lo strncmp.lo \
+	strncpy.lo strnlen.lo strnstr.lo strpbrk.lo strrchr.lo \
 	strsep.lo strsignal.lo strspn.lo strtok.lo strtok_r.lo \
-	strupr.lo strxfrm.lo strstr.lo swab.lo u_strerr.lo
+	strupr.lo strxfrm.lo strstr.lo swab.lo timingsafe_bcmp.lo \
+	timingsafe_memcmp.lo u_strerr.lo wcscat.lo wcschr.lo wcscmp.lo \
+	wcscoll.lo wcscpy.lo wcscspn.lo wcslcat.lo wcslcpy.lo \
+	wcslen.lo wcsncat.lo wcsncmp.lo wcsncpy.lo wcsnlen.lo \
+	wcspbrk.lo wcsrchr.lo wcsspn.lo wcsstr.lo wcstok.lo \
+	wcswidth.lo wcsxfrm.lo wcwidth.lo wmemchr.lo wmemcmp.lo \
+	wmemcpy.lo wmemmove.lo wmemset.lo xpg_strerror_r.lo
 @ELIX_LEVEL_1_FALSE@am__objects_5 = bcmp.lo memccpy.lo mempcpy.lo \
 @ELIX_LEVEL_1_FALSE@	stpcpy.lo stpncpy.lo strndup.lo \
-@ELIX_LEVEL_1_FALSE@	strcasestr.lo strndup_r.lo strchrnul.lo
-@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@am__objects_6 = memmem.lo \
+@ELIX_LEVEL_1_FALSE@	strcasestr.lo strchrnul.lo strndup_r.lo \
+@ELIX_LEVEL_1_FALSE@	wcpcpy.lo wcpncpy.lo wcsdup.lo
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@am__objects_6 = gnu_basename.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	memmem.lo \
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	memrchr.lo \
-@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	rawmemchr.lo
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	rawmemchr.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strcasecmp_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strcoll_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strncasecmp_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strverscmp.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strxfrm_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscasecmp.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscasecmp_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscoll_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsncasecmp.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsncasecmp_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsxfrm_l.lo \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wmempcpy.lo
 @USE_LIBTOOL_TRUE@am_libstring_la_OBJECTS = $(am__objects_4) \
 @USE_LIBTOOL_TRUE@	$(am__objects_5) $(am__objects_6)
 libstring_la_OBJECTS = $(am_libstring_la_OBJECTS)
@@ -301,6 +356,12 @@ INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 GENERAL_SOURCES = \
 	bcopy.c \
 	bzero.c \
+	explicit_bzero.c \
+	ffsl.c \
+	ffsll.c \
+	fls.c \
+	flsl.c \
+	flsll.c \
 	index.c \
 	memchr.c \
 	memcmp.c \
@@ -328,6 +389,7 @@ GENERAL_SOURCES = \
 	strncmp.c \
 	strncpy.c \
 	strnlen.c \
+	strnstr.c \
 	strpbrk.c \
 	strrchr.c \
 	strsep.c \
@@ -339,7 +401,36 @@ GENERAL_SOURCES = \
 	strxfrm.c  \
 	strstr.c \
 	swab.c \
-	u_strerr.c
+	timingsafe_bcmp.c \
+	timingsafe_memcmp.c \
+	u_strerr.c \
+	wcscat.c \
+	wcschr.c \
+	wcscmp.c \
+	wcscoll.c \
+	wcscpy.c \
+	wcscspn.c \
+	wcslcat.c \
+	wcslcpy.c \
+	wcslen.c \
+	wcsncat.c \
+	wcsncmp.c \
+	wcsncpy.c \
+	wcsnlen.c \
+	wcspbrk.c \
+	wcsrchr.c \
+	wcsspn.c \
+	wcsstr.c \
+	wcstok.c \
+	wcswidth.c \
+	wcsxfrm.c \
+	wcwidth.c \
+	wmemchr.c \
+	wmemcmp.c \
+	wmemcpy.c \
+	wmemmove.c \
+	wmemset.c \
+	xpg_strerror_r.c
 
 @ELIX_LEVEL_1_FALSE@ELIX_2_SOURCES = \
 @ELIX_LEVEL_1_FALSE@	bcmp.c \
@@ -349,14 +440,30 @@ GENERAL_SOURCES = \
 @ELIX_LEVEL_1_FALSE@	stpncpy.c \
 @ELIX_LEVEL_1_FALSE@	strndup.c \
 @ELIX_LEVEL_1_FALSE@	strcasestr.c \
+@ELIX_LEVEL_1_FALSE@	strchrnul.c \
 @ELIX_LEVEL_1_FALSE@	strndup_r.c \
-@ELIX_LEVEL_1_FALSE@	strchrnul.c
+@ELIX_LEVEL_1_FALSE@	wcpcpy.c \
+@ELIX_LEVEL_1_FALSE@	wcpncpy.c \
+@ELIX_LEVEL_1_FALSE@	wcsdup.c
 
 @ELIX_LEVEL_1_TRUE@ELIX_2_SOURCES = 
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@ELIX_4_SOURCES = \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	gnu_basename.c \
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	memmem.c \
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	memrchr.c \
-@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	rawmemchr.c
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	rawmemchr.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strcasecmp_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strcoll_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strncasecmp_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strverscmp.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	strxfrm_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscasecmp.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscasecmp_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcscoll_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsncasecmp.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsncasecmp_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wcsxfrm_l.c \
+@ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_FALSE@	wmempcpy.c
 
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_FALSE@@ELIX_LEVEL_3_TRUE@ELIX_4_SOURCES = 
 @ELIX_LEVEL_1_FALSE@@ELIX_LEVEL_2_TRUE@ELIX_4_SOURCES = 
@@ -369,6 +476,16 @@ libstring_la_LDFLAGS = -Xcompiler -nostdlib
 @USE_LIBTOOL_FALSE@noinst_LIBRARIES = lib.a
 @USE_LIBTOOL_FALSE@lib_a_SOURCES = $(GENERAL_SOURCES) $(ELIX_2_SOURCES) $(ELIX_4_SOURCES)
 @USE_LIBTOOL_FALSE@lib_a_CFLAGS = $(AM_CFLAGS)
+
+#
+# documentation rules
+#
+SUFFIXES = .def .xml
+CHEW = ${top_builddir}/../doc/makedoc -f $(top_srcdir)/../doc/doc.str
+DOCBOOK_CHEW = ${top_srcdir}/../doc/makedocbook.py
+DOCBOOK_OUT_FILES = $(CHEWOUT_FILES:.def=.xml)
+DOCBOOK_CHAPTERS = $(CHAPTERS:.tex=.xml)
+CLEANFILES = $(CHEWOUT_FILES) $(DOCBOOK_OUT_FILES)
 CHEWOUT_FILES = \
 bcmp.def	memcpy.def	strcmp.def	strncat.def strstr.def \
 bcopy.def	memmove.def	strcoll.def	strncmp.def strtok.def \
@@ -385,16 +502,16 @@ wcsncmp.def	wcsncpy.def	wcsnlen.def	wcspbrk.def \
 wcsrchr.def	wcsspn.def	wcsstr.def 	wcstok.def  \
 wcswidth.def	wcsxfrm.def	wcwidth.def	wmemchr.def \
 wmemcmp.def	wmemcpy.def	wmemmove.def	wmemset.def \
-memmem.def	memrchr.def	rawmemchr.def
+memmem.def	memrchr.def	rawmemchr.def	strchrnul.def \
+strcasecmp_l.def strcoll_l.def	strncasecmp_l.def strxfrm_l.def \
+wcscasecmp_l.def wcscoll_l.def	wcsncasecmp_l.def wcsxfrm_l.def \
+strverscmp.def	strnstr.def	wmempcpy.def
 
-SUFFIXES = .def
-CHEW = ../../doc/makedoc -f $(srcdir)/../../doc/doc.str
-TARGETDOC = ../tmp.texi
-CLEANFILES = $(CHEWOUT_FILES) *.ref
+CHAPTERS = strings.tex wcstrings.tex
 all: all-am
 
 .SUFFIXES:
-.SUFFIXES: .def .c .lo .o .obj
+.SUFFIXES: .def .xml .c .lo .o .obj
 $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am $(srcdir)/../../Makefile.shared $(am__configure_deps)
 	@for dep in $?; do \
 	  case '$(am__configure_deps)' in \
@@ -471,6 +588,42 @@ lib_a-bzero.o: bzero.c
 
 lib_a-bzero.obj: bzero.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-bzero.obj `if test -f 'bzero.c'; then $(CYGPATH_W) 'bzero.c'; else $(CYGPATH_W) '$(srcdir)/bzero.c'; fi`
+
+lib_a-explicit_bzero.o: explicit_bzero.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-explicit_bzero.o `test -f 'explicit_bzero.c' || echo '$(srcdir)/'`explicit_bzero.c
+
+lib_a-explicit_bzero.obj: explicit_bzero.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-explicit_bzero.obj `if test -f 'explicit_bzero.c'; then $(CYGPATH_W) 'explicit_bzero.c'; else $(CYGPATH_W) '$(srcdir)/explicit_bzero.c'; fi`
+
+lib_a-ffsl.o: ffsl.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-ffsl.o `test -f 'ffsl.c' || echo '$(srcdir)/'`ffsl.c
+
+lib_a-ffsl.obj: ffsl.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-ffsl.obj `if test -f 'ffsl.c'; then $(CYGPATH_W) 'ffsl.c'; else $(CYGPATH_W) '$(srcdir)/ffsl.c'; fi`
+
+lib_a-ffsll.o: ffsll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-ffsll.o `test -f 'ffsll.c' || echo '$(srcdir)/'`ffsll.c
+
+lib_a-ffsll.obj: ffsll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-ffsll.obj `if test -f 'ffsll.c'; then $(CYGPATH_W) 'ffsll.c'; else $(CYGPATH_W) '$(srcdir)/ffsll.c'; fi`
+
+lib_a-fls.o: fls.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-fls.o `test -f 'fls.c' || echo '$(srcdir)/'`fls.c
+
+lib_a-fls.obj: fls.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-fls.obj `if test -f 'fls.c'; then $(CYGPATH_W) 'fls.c'; else $(CYGPATH_W) '$(srcdir)/fls.c'; fi`
+
+lib_a-flsl.o: flsl.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-flsl.o `test -f 'flsl.c' || echo '$(srcdir)/'`flsl.c
+
+lib_a-flsl.obj: flsl.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-flsl.obj `if test -f 'flsl.c'; then $(CYGPATH_W) 'flsl.c'; else $(CYGPATH_W) '$(srcdir)/flsl.c'; fi`
+
+lib_a-flsll.o: flsll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-flsll.o `test -f 'flsll.c' || echo '$(srcdir)/'`flsll.c
+
+lib_a-flsll.obj: flsll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-flsll.obj `if test -f 'flsll.c'; then $(CYGPATH_W) 'flsll.c'; else $(CYGPATH_W) '$(srcdir)/flsll.c'; fi`
 
 lib_a-index.o: index.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-index.o `test -f 'index.c' || echo '$(srcdir)/'`index.c
@@ -634,6 +787,12 @@ lib_a-strnlen.o: strnlen.c
 lib_a-strnlen.obj: strnlen.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strnlen.obj `if test -f 'strnlen.c'; then $(CYGPATH_W) 'strnlen.c'; else $(CYGPATH_W) '$(srcdir)/strnlen.c'; fi`
 
+lib_a-strnstr.o: strnstr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strnstr.o `test -f 'strnstr.c' || echo '$(srcdir)/'`strnstr.c
+
+lib_a-strnstr.obj: strnstr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strnstr.obj `if test -f 'strnstr.c'; then $(CYGPATH_W) 'strnstr.c'; else $(CYGPATH_W) '$(srcdir)/strnstr.c'; fi`
+
 lib_a-strpbrk.o: strpbrk.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strpbrk.o `test -f 'strpbrk.c' || echo '$(srcdir)/'`strpbrk.c
 
@@ -700,11 +859,185 @@ lib_a-swab.o: swab.c
 lib_a-swab.obj: swab.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-swab.obj `if test -f 'swab.c'; then $(CYGPATH_W) 'swab.c'; else $(CYGPATH_W) '$(srcdir)/swab.c'; fi`
 
+lib_a-timingsafe_bcmp.o: timingsafe_bcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-timingsafe_bcmp.o `test -f 'timingsafe_bcmp.c' || echo '$(srcdir)/'`timingsafe_bcmp.c
+
+lib_a-timingsafe_bcmp.obj: timingsafe_bcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-timingsafe_bcmp.obj `if test -f 'timingsafe_bcmp.c'; then $(CYGPATH_W) 'timingsafe_bcmp.c'; else $(CYGPATH_W) '$(srcdir)/timingsafe_bcmp.c'; fi`
+
+lib_a-timingsafe_memcmp.o: timingsafe_memcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-timingsafe_memcmp.o `test -f 'timingsafe_memcmp.c' || echo '$(srcdir)/'`timingsafe_memcmp.c
+
+lib_a-timingsafe_memcmp.obj: timingsafe_memcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-timingsafe_memcmp.obj `if test -f 'timingsafe_memcmp.c'; then $(CYGPATH_W) 'timingsafe_memcmp.c'; else $(CYGPATH_W) '$(srcdir)/timingsafe_memcmp.c'; fi`
+
 lib_a-u_strerr.o: u_strerr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-u_strerr.o `test -f 'u_strerr.c' || echo '$(srcdir)/'`u_strerr.c
 
 lib_a-u_strerr.obj: u_strerr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-u_strerr.obj `if test -f 'u_strerr.c'; then $(CYGPATH_W) 'u_strerr.c'; else $(CYGPATH_W) '$(srcdir)/u_strerr.c'; fi`
+
+lib_a-wcscat.o: wcscat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscat.o `test -f 'wcscat.c' || echo '$(srcdir)/'`wcscat.c
+
+lib_a-wcscat.obj: wcscat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscat.obj `if test -f 'wcscat.c'; then $(CYGPATH_W) 'wcscat.c'; else $(CYGPATH_W) '$(srcdir)/wcscat.c'; fi`
+
+lib_a-wcschr.o: wcschr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcschr.o `test -f 'wcschr.c' || echo '$(srcdir)/'`wcschr.c
+
+lib_a-wcschr.obj: wcschr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcschr.obj `if test -f 'wcschr.c'; then $(CYGPATH_W) 'wcschr.c'; else $(CYGPATH_W) '$(srcdir)/wcschr.c'; fi`
+
+lib_a-wcscmp.o: wcscmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscmp.o `test -f 'wcscmp.c' || echo '$(srcdir)/'`wcscmp.c
+
+lib_a-wcscmp.obj: wcscmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscmp.obj `if test -f 'wcscmp.c'; then $(CYGPATH_W) 'wcscmp.c'; else $(CYGPATH_W) '$(srcdir)/wcscmp.c'; fi`
+
+lib_a-wcscoll.o: wcscoll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscoll.o `test -f 'wcscoll.c' || echo '$(srcdir)/'`wcscoll.c
+
+lib_a-wcscoll.obj: wcscoll.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscoll.obj `if test -f 'wcscoll.c'; then $(CYGPATH_W) 'wcscoll.c'; else $(CYGPATH_W) '$(srcdir)/wcscoll.c'; fi`
+
+lib_a-wcscpy.o: wcscpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscpy.o `test -f 'wcscpy.c' || echo '$(srcdir)/'`wcscpy.c
+
+lib_a-wcscpy.obj: wcscpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscpy.obj `if test -f 'wcscpy.c'; then $(CYGPATH_W) 'wcscpy.c'; else $(CYGPATH_W) '$(srcdir)/wcscpy.c'; fi`
+
+lib_a-wcscspn.o: wcscspn.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscspn.o `test -f 'wcscspn.c' || echo '$(srcdir)/'`wcscspn.c
+
+lib_a-wcscspn.obj: wcscspn.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscspn.obj `if test -f 'wcscspn.c'; then $(CYGPATH_W) 'wcscspn.c'; else $(CYGPATH_W) '$(srcdir)/wcscspn.c'; fi`
+
+lib_a-wcslcat.o: wcslcat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslcat.o `test -f 'wcslcat.c' || echo '$(srcdir)/'`wcslcat.c
+
+lib_a-wcslcat.obj: wcslcat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslcat.obj `if test -f 'wcslcat.c'; then $(CYGPATH_W) 'wcslcat.c'; else $(CYGPATH_W) '$(srcdir)/wcslcat.c'; fi`
+
+lib_a-wcslcpy.o: wcslcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslcpy.o `test -f 'wcslcpy.c' || echo '$(srcdir)/'`wcslcpy.c
+
+lib_a-wcslcpy.obj: wcslcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslcpy.obj `if test -f 'wcslcpy.c'; then $(CYGPATH_W) 'wcslcpy.c'; else $(CYGPATH_W) '$(srcdir)/wcslcpy.c'; fi`
+
+lib_a-wcslen.o: wcslen.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslen.o `test -f 'wcslen.c' || echo '$(srcdir)/'`wcslen.c
+
+lib_a-wcslen.obj: wcslen.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcslen.obj `if test -f 'wcslen.c'; then $(CYGPATH_W) 'wcslen.c'; else $(CYGPATH_W) '$(srcdir)/wcslen.c'; fi`
+
+lib_a-wcsncat.o: wcsncat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncat.o `test -f 'wcsncat.c' || echo '$(srcdir)/'`wcsncat.c
+
+lib_a-wcsncat.obj: wcsncat.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncat.obj `if test -f 'wcsncat.c'; then $(CYGPATH_W) 'wcsncat.c'; else $(CYGPATH_W) '$(srcdir)/wcsncat.c'; fi`
+
+lib_a-wcsncmp.o: wcsncmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncmp.o `test -f 'wcsncmp.c' || echo '$(srcdir)/'`wcsncmp.c
+
+lib_a-wcsncmp.obj: wcsncmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncmp.obj `if test -f 'wcsncmp.c'; then $(CYGPATH_W) 'wcsncmp.c'; else $(CYGPATH_W) '$(srcdir)/wcsncmp.c'; fi`
+
+lib_a-wcsncpy.o: wcsncpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncpy.o `test -f 'wcsncpy.c' || echo '$(srcdir)/'`wcsncpy.c
+
+lib_a-wcsncpy.obj: wcsncpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncpy.obj `if test -f 'wcsncpy.c'; then $(CYGPATH_W) 'wcsncpy.c'; else $(CYGPATH_W) '$(srcdir)/wcsncpy.c'; fi`
+
+lib_a-wcsnlen.o: wcsnlen.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsnlen.o `test -f 'wcsnlen.c' || echo '$(srcdir)/'`wcsnlen.c
+
+lib_a-wcsnlen.obj: wcsnlen.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsnlen.obj `if test -f 'wcsnlen.c'; then $(CYGPATH_W) 'wcsnlen.c'; else $(CYGPATH_W) '$(srcdir)/wcsnlen.c'; fi`
+
+lib_a-wcspbrk.o: wcspbrk.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcspbrk.o `test -f 'wcspbrk.c' || echo '$(srcdir)/'`wcspbrk.c
+
+lib_a-wcspbrk.obj: wcspbrk.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcspbrk.obj `if test -f 'wcspbrk.c'; then $(CYGPATH_W) 'wcspbrk.c'; else $(CYGPATH_W) '$(srcdir)/wcspbrk.c'; fi`
+
+lib_a-wcsrchr.o: wcsrchr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsrchr.o `test -f 'wcsrchr.c' || echo '$(srcdir)/'`wcsrchr.c
+
+lib_a-wcsrchr.obj: wcsrchr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsrchr.obj `if test -f 'wcsrchr.c'; then $(CYGPATH_W) 'wcsrchr.c'; else $(CYGPATH_W) '$(srcdir)/wcsrchr.c'; fi`
+
+lib_a-wcsspn.o: wcsspn.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsspn.o `test -f 'wcsspn.c' || echo '$(srcdir)/'`wcsspn.c
+
+lib_a-wcsspn.obj: wcsspn.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsspn.obj `if test -f 'wcsspn.c'; then $(CYGPATH_W) 'wcsspn.c'; else $(CYGPATH_W) '$(srcdir)/wcsspn.c'; fi`
+
+lib_a-wcsstr.o: wcsstr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsstr.o `test -f 'wcsstr.c' || echo '$(srcdir)/'`wcsstr.c
+
+lib_a-wcsstr.obj: wcsstr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsstr.obj `if test -f 'wcsstr.c'; then $(CYGPATH_W) 'wcsstr.c'; else $(CYGPATH_W) '$(srcdir)/wcsstr.c'; fi`
+
+lib_a-wcstok.o: wcstok.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcstok.o `test -f 'wcstok.c' || echo '$(srcdir)/'`wcstok.c
+
+lib_a-wcstok.obj: wcstok.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcstok.obj `if test -f 'wcstok.c'; then $(CYGPATH_W) 'wcstok.c'; else $(CYGPATH_W) '$(srcdir)/wcstok.c'; fi`
+
+lib_a-wcswidth.o: wcswidth.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcswidth.o `test -f 'wcswidth.c' || echo '$(srcdir)/'`wcswidth.c
+
+lib_a-wcswidth.obj: wcswidth.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcswidth.obj `if test -f 'wcswidth.c'; then $(CYGPATH_W) 'wcswidth.c'; else $(CYGPATH_W) '$(srcdir)/wcswidth.c'; fi`
+
+lib_a-wcsxfrm.o: wcsxfrm.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsxfrm.o `test -f 'wcsxfrm.c' || echo '$(srcdir)/'`wcsxfrm.c
+
+lib_a-wcsxfrm.obj: wcsxfrm.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsxfrm.obj `if test -f 'wcsxfrm.c'; then $(CYGPATH_W) 'wcsxfrm.c'; else $(CYGPATH_W) '$(srcdir)/wcsxfrm.c'; fi`
+
+lib_a-wcwidth.o: wcwidth.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcwidth.o `test -f 'wcwidth.c' || echo '$(srcdir)/'`wcwidth.c
+
+lib_a-wcwidth.obj: wcwidth.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcwidth.obj `if test -f 'wcwidth.c'; then $(CYGPATH_W) 'wcwidth.c'; else $(CYGPATH_W) '$(srcdir)/wcwidth.c'; fi`
+
+lib_a-wmemchr.o: wmemchr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemchr.o `test -f 'wmemchr.c' || echo '$(srcdir)/'`wmemchr.c
+
+lib_a-wmemchr.obj: wmemchr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemchr.obj `if test -f 'wmemchr.c'; then $(CYGPATH_W) 'wmemchr.c'; else $(CYGPATH_W) '$(srcdir)/wmemchr.c'; fi`
+
+lib_a-wmemcmp.o: wmemcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemcmp.o `test -f 'wmemcmp.c' || echo '$(srcdir)/'`wmemcmp.c
+
+lib_a-wmemcmp.obj: wmemcmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemcmp.obj `if test -f 'wmemcmp.c'; then $(CYGPATH_W) 'wmemcmp.c'; else $(CYGPATH_W) '$(srcdir)/wmemcmp.c'; fi`
+
+lib_a-wmemcpy.o: wmemcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemcpy.o `test -f 'wmemcpy.c' || echo '$(srcdir)/'`wmemcpy.c
+
+lib_a-wmemcpy.obj: wmemcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemcpy.obj `if test -f 'wmemcpy.c'; then $(CYGPATH_W) 'wmemcpy.c'; else $(CYGPATH_W) '$(srcdir)/wmemcpy.c'; fi`
+
+lib_a-wmemmove.o: wmemmove.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemmove.o `test -f 'wmemmove.c' || echo '$(srcdir)/'`wmemmove.c
+
+lib_a-wmemmove.obj: wmemmove.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemmove.obj `if test -f 'wmemmove.c'; then $(CYGPATH_W) 'wmemmove.c'; else $(CYGPATH_W) '$(srcdir)/wmemmove.c'; fi`
+
+lib_a-wmemset.o: wmemset.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemset.o `test -f 'wmemset.c' || echo '$(srcdir)/'`wmemset.c
+
+lib_a-wmemset.obj: wmemset.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmemset.obj `if test -f 'wmemset.c'; then $(CYGPATH_W) 'wmemset.c'; else $(CYGPATH_W) '$(srcdir)/wmemset.c'; fi`
+
+lib_a-xpg_strerror_r.o: xpg_strerror_r.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-xpg_strerror_r.o `test -f 'xpg_strerror_r.c' || echo '$(srcdir)/'`xpg_strerror_r.c
+
+lib_a-xpg_strerror_r.obj: xpg_strerror_r.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-xpg_strerror_r.obj `if test -f 'xpg_strerror_r.c'; then $(CYGPATH_W) 'xpg_strerror_r.c'; else $(CYGPATH_W) '$(srcdir)/xpg_strerror_r.c'; fi`
 
 lib_a-bcmp.o: bcmp.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-bcmp.o `test -f 'bcmp.c' || echo '$(srcdir)/'`bcmp.c
@@ -748,17 +1081,41 @@ lib_a-strcasestr.o: strcasestr.c
 lib_a-strcasestr.obj: strcasestr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcasestr.obj `if test -f 'strcasestr.c'; then $(CYGPATH_W) 'strcasestr.c'; else $(CYGPATH_W) '$(srcdir)/strcasestr.c'; fi`
 
+lib_a-strchrnul.o: strchrnul.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strchrnul.o `test -f 'strchrnul.c' || echo '$(srcdir)/'`strchrnul.c
+
+lib_a-strchrnul.obj: strchrnul.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strchrnul.obj `if test -f 'strchrnul.c'; then $(CYGPATH_W) 'strchrnul.c'; else $(CYGPATH_W) '$(srcdir)/strchrnul.c'; fi`
+
 lib_a-strndup_r.o: strndup_r.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strndup_r.o `test -f 'strndup_r.c' || echo '$(srcdir)/'`strndup_r.c
 
 lib_a-strndup_r.obj: strndup_r.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strndup_r.obj `if test -f 'strndup_r.c'; then $(CYGPATH_W) 'strndup_r.c'; else $(CYGPATH_W) '$(srcdir)/strndup_r.c'; fi`
 
-lib_a-strchrnul.o: strchrnul.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strchrnul.o `test -f 'strchrnul.c' || echo '$(srcdir)/'`strchrnul.c
+lib_a-wcpcpy.o: wcpcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcpcpy.o `test -f 'wcpcpy.c' || echo '$(srcdir)/'`wcpcpy.c
 
-lib_a-strchrnul.obj: strchrnul.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strchrnul.obj `if test -f 'strchrnul.c'; then $(CYGPATH_W) 'strchrnul.c'; else $(CYGPATH_W) '$(srcdir)/strchrnul.c'; fi`
+lib_a-wcpcpy.obj: wcpcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcpcpy.obj `if test -f 'wcpcpy.c'; then $(CYGPATH_W) 'wcpcpy.c'; else $(CYGPATH_W) '$(srcdir)/wcpcpy.c'; fi`
+
+lib_a-wcpncpy.o: wcpncpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcpncpy.o `test -f 'wcpncpy.c' || echo '$(srcdir)/'`wcpncpy.c
+
+lib_a-wcpncpy.obj: wcpncpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcpncpy.obj `if test -f 'wcpncpy.c'; then $(CYGPATH_W) 'wcpncpy.c'; else $(CYGPATH_W) '$(srcdir)/wcpncpy.c'; fi`
+
+lib_a-wcsdup.o: wcsdup.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsdup.o `test -f 'wcsdup.c' || echo '$(srcdir)/'`wcsdup.c
+
+lib_a-wcsdup.obj: wcsdup.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsdup.obj `if test -f 'wcsdup.c'; then $(CYGPATH_W) 'wcsdup.c'; else $(CYGPATH_W) '$(srcdir)/wcsdup.c'; fi`
+
+lib_a-gnu_basename.o: gnu_basename.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-gnu_basename.o `test -f 'gnu_basename.c' || echo '$(srcdir)/'`gnu_basename.c
+
+lib_a-gnu_basename.obj: gnu_basename.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-gnu_basename.obj `if test -f 'gnu_basename.c'; then $(CYGPATH_W) 'gnu_basename.c'; else $(CYGPATH_W) '$(srcdir)/gnu_basename.c'; fi`
 
 lib_a-memmem.o: memmem.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-memmem.o `test -f 'memmem.c' || echo '$(srcdir)/'`memmem.c
@@ -777,6 +1134,78 @@ lib_a-rawmemchr.o: rawmemchr.c
 
 lib_a-rawmemchr.obj: rawmemchr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-rawmemchr.obj `if test -f 'rawmemchr.c'; then $(CYGPATH_W) 'rawmemchr.c'; else $(CYGPATH_W) '$(srcdir)/rawmemchr.c'; fi`
+
+lib_a-strcasecmp_l.o: strcasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcasecmp_l.o `test -f 'strcasecmp_l.c' || echo '$(srcdir)/'`strcasecmp_l.c
+
+lib_a-strcasecmp_l.obj: strcasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcasecmp_l.obj `if test -f 'strcasecmp_l.c'; then $(CYGPATH_W) 'strcasecmp_l.c'; else $(CYGPATH_W) '$(srcdir)/strcasecmp_l.c'; fi`
+
+lib_a-strcoll_l.o: strcoll_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcoll_l.o `test -f 'strcoll_l.c' || echo '$(srcdir)/'`strcoll_l.c
+
+lib_a-strcoll_l.obj: strcoll_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcoll_l.obj `if test -f 'strcoll_l.c'; then $(CYGPATH_W) 'strcoll_l.c'; else $(CYGPATH_W) '$(srcdir)/strcoll_l.c'; fi`
+
+lib_a-strncasecmp_l.o: strncasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strncasecmp_l.o `test -f 'strncasecmp_l.c' || echo '$(srcdir)/'`strncasecmp_l.c
+
+lib_a-strncasecmp_l.obj: strncasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strncasecmp_l.obj `if test -f 'strncasecmp_l.c'; then $(CYGPATH_W) 'strncasecmp_l.c'; else $(CYGPATH_W) '$(srcdir)/strncasecmp_l.c'; fi`
+
+lib_a-strverscmp.o: strverscmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strverscmp.o `test -f 'strverscmp.c' || echo '$(srcdir)/'`strverscmp.c
+
+lib_a-strverscmp.obj: strverscmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strverscmp.obj `if test -f 'strverscmp.c'; then $(CYGPATH_W) 'strverscmp.c'; else $(CYGPATH_W) '$(srcdir)/strverscmp.c'; fi`
+
+lib_a-strxfrm_l.o: strxfrm_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strxfrm_l.o `test -f 'strxfrm_l.c' || echo '$(srcdir)/'`strxfrm_l.c
+
+lib_a-strxfrm_l.obj: strxfrm_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strxfrm_l.obj `if test -f 'strxfrm_l.c'; then $(CYGPATH_W) 'strxfrm_l.c'; else $(CYGPATH_W) '$(srcdir)/strxfrm_l.c'; fi`
+
+lib_a-wcscasecmp.o: wcscasecmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscasecmp.o `test -f 'wcscasecmp.c' || echo '$(srcdir)/'`wcscasecmp.c
+
+lib_a-wcscasecmp.obj: wcscasecmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscasecmp.obj `if test -f 'wcscasecmp.c'; then $(CYGPATH_W) 'wcscasecmp.c'; else $(CYGPATH_W) '$(srcdir)/wcscasecmp.c'; fi`
+
+lib_a-wcscasecmp_l.o: wcscasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscasecmp_l.o `test -f 'wcscasecmp_l.c' || echo '$(srcdir)/'`wcscasecmp_l.c
+
+lib_a-wcscasecmp_l.obj: wcscasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscasecmp_l.obj `if test -f 'wcscasecmp_l.c'; then $(CYGPATH_W) 'wcscasecmp_l.c'; else $(CYGPATH_W) '$(srcdir)/wcscasecmp_l.c'; fi`
+
+lib_a-wcscoll_l.o: wcscoll_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscoll_l.o `test -f 'wcscoll_l.c' || echo '$(srcdir)/'`wcscoll_l.c
+
+lib_a-wcscoll_l.obj: wcscoll_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcscoll_l.obj `if test -f 'wcscoll_l.c'; then $(CYGPATH_W) 'wcscoll_l.c'; else $(CYGPATH_W) '$(srcdir)/wcscoll_l.c'; fi`
+
+lib_a-wcsncasecmp.o: wcsncasecmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncasecmp.o `test -f 'wcsncasecmp.c' || echo '$(srcdir)/'`wcsncasecmp.c
+
+lib_a-wcsncasecmp.obj: wcsncasecmp.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncasecmp.obj `if test -f 'wcsncasecmp.c'; then $(CYGPATH_W) 'wcsncasecmp.c'; else $(CYGPATH_W) '$(srcdir)/wcsncasecmp.c'; fi`
+
+lib_a-wcsncasecmp_l.o: wcsncasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncasecmp_l.o `test -f 'wcsncasecmp_l.c' || echo '$(srcdir)/'`wcsncasecmp_l.c
+
+lib_a-wcsncasecmp_l.obj: wcsncasecmp_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsncasecmp_l.obj `if test -f 'wcsncasecmp_l.c'; then $(CYGPATH_W) 'wcsncasecmp_l.c'; else $(CYGPATH_W) '$(srcdir)/wcsncasecmp_l.c'; fi`
+
+lib_a-wcsxfrm_l.o: wcsxfrm_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsxfrm_l.o `test -f 'wcsxfrm_l.c' || echo '$(srcdir)/'`wcsxfrm_l.c
+
+lib_a-wcsxfrm_l.obj: wcsxfrm_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wcsxfrm_l.obj `if test -f 'wcsxfrm_l.c'; then $(CYGPATH_W) 'wcsxfrm_l.c'; else $(CYGPATH_W) '$(srcdir)/wcsxfrm_l.c'; fi`
+
+lib_a-wmempcpy.o: wmempcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmempcpy.o `test -f 'wmempcpy.c' || echo '$(srcdir)/'`wmempcpy.c
+
+lib_a-wmempcpy.obj: wmempcpy.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-wmempcpy.obj `if test -f 'wmempcpy.c'; then $(CYGPATH_W) 'wmempcpy.c'; else $(CYGPATH_W) '$(srcdir)/wmempcpy.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -963,12 +1392,26 @@ objectlist.awk.in: $(noinst_LTLIBRARIES)
 	done
 
 .c.def:
-	$(CHEW) < $< > $*.def 2> $*.ref
-	touch stmp-def
+	$(CHEW) < $< > $*.def || ( rm $*.def && false )
+	@touch stmp-def
+
+TARGETDOC ?= ../tmp.texi
 
 doc: $(CHEWOUT_FILES)
-	cat $(srcdir)/strings.tex >> $(TARGETDOC)
-	cat $(srcdir)/wcstrings.tex >> $(TARGETDOC)
+	for chapter in $(CHAPTERS) ; \
+	do \
+	  cat $(srcdir)/$$chapter >> $(TARGETDOC) ; \
+	done
+
+.c.xml:
+	$(DOCBOOK_CHEW) < $< > $*.xml || ( rm $*.xml && false )
+	@touch stmp-xml
+
+docbook: $(DOCBOOK_OUT_FILES)
+	for chapter in $(DOCBOOK_CHAPTERS) ; \
+	do \
+	  ${top_srcdir}/../doc/chapter-texi2docbook.py <$(srcdir)/$${chapter%.xml}.tex >../$$chapter ; \
+	done
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

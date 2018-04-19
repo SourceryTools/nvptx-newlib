@@ -27,6 +27,8 @@
  * SUCH DAMAGE.
  */
 
+#define __INSIDE_CYGWIN__
+
 extern "C" {
 #if defined(LIBC_SCCS) && !defined(lint)
 static char sccsid[] = "@(#)random.c	8.2 (Berkeley) 5/19/95";
@@ -299,7 +301,6 @@ dummy (unsigned volatile long *x)
 void
 srandomdev()
 {
-	int fd, done;
 	size_t len;
 
 	if (rand_type == TYPE_0)
@@ -307,15 +308,7 @@ srandomdev()
 	else
 		len = rand_deg * sizeof state[0];
 
-	done = 0;
-	fd = open("/dev/random", O_RDONLY, 0);
-	if (fd >= 0) {
-		if (read(fd, (void *) state, len) == (ssize_t) len)
-			done = 1;
-		close(fd);
-	}
-
-	if (!done) {
+	if (getentropy ((void *) state, len)) {
 		struct timeval tv;
 		unsigned long junk;
 
@@ -422,7 +415,7 @@ initstate(unsigned seed,		/* seed for R.N.G. */
  * complain about mis-alignment, but you should disregard these messages.
  */
 char *
-setstate(const char *arg_state /* pointer to state array */)
+setstate(char *arg_state /* pointer to state array */)
 {
 	uint32_t *new_state = (uint32_t *)arg_state;
 	uint32_t type = new_state[0] % MAX_TYPES;

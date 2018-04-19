@@ -1,8 +1,5 @@
 /* dtable.cc: file descriptor support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -285,7 +282,7 @@ dtable::init_std_file_from_handle (int fd, HANDLE handle)
   CONSOLE_SCREEN_BUFFER_INFO buf;
   DCB dcb;
   unsigned bin = O_BINARY;
-  device dev = {};
+  device dev;
 
   first_fd_for_open = 0;
 
@@ -307,14 +304,14 @@ dtable::init_std_file_from_handle (int fd, HANDLE handle)
 	dev.parse (name);
       else if (strcmp (name, ":sock:") == 0
 	       /* NtQueryObject returns an error when called on an LSP socket
-		  handle.  While fdsock now tries to fetch the underlying
-		  base socket, this only works on Vista and later. */
+		  handle.  fhandler_socket::set_socket_handle tries to fetch
+		  the underlying base socket, but this might fail. */
 	       || (strcmp (name, unknown_file) == 0
 		   && !::getsockopt ((SOCKET) handle, SOL_SOCKET, SO_RCVBUF,
 				     (char *) &rcv, &len)))
 	{
 	  /* socket */
-	  dev = *tcp_dev;
+	  dev = *af_inet_dev;
 	  name[0] = '\0';
 	}
       else if (fd == 0)
@@ -371,9 +368,10 @@ dtable::init_std_file_from_handle (int fd, HANDLE handle)
       FILE_ACCESS_INFORMATION fai;
       int openflags = O_BINARY;
 
-      /* Console windows are not kernel objects, so the access mask returned
-	 by NtQueryInformationFile is meaningless.  CMD always hands down
-	 stdin handles as R/O handles, but our tty slave sides are R/W. */
+      /* Console windows are no kernel objects up to Windows 7/2008R2, so the
+      	 access mask returned by NtQueryInformationFile is meaningless.  CMD
+	 always hands down stdin handles as R/O handles, but our tty slave
+	 sides are R/W. */
       if (fh->is_tty ())
 	{
 	  openflags |= O_RDWR;
@@ -451,9 +449,9 @@ build_fh_dev (const device& dev, const char *unix_name)
 {
   path_conv pc (dev);
   if (unix_name)
-    pc.set_normalized_path (unix_name);
+    pc.set_posix (unix_name);
   else
-    pc.set_normalized_path (dev.name);
+    pc.set_posix (dev.name ());
   return build_fh_pc (pc);
 }
 
@@ -478,13 +476,8 @@ fh_alloc (path_conv& pc)
     case DEV_FLOPPY_MAJOR:
     case DEV_CDROM_MAJOR:
     case DEV_SD_MAJOR:
-    case DEV_SD1_MAJOR:
-    case DEV_SD2_MAJOR:
-    case DEV_SD3_MAJOR:
-    case DEV_SD4_MAJOR:
-    case DEV_SD5_MAJOR:
-    case DEV_SD6_MAJOR:
-    case DEV_SD7_MAJOR:
+    case DEV_SD1_MAJOR ... DEV_SD7_MAJOR:
+    case DEV_SD_HIGHPART_START ... DEV_SD_HIGHPART_END:
       fh = cnew (fhandler_dev_floppy);
       break;
     case DEV_TAPE_MAJOR:
@@ -521,13 +514,14 @@ fh_alloc (path_conv& pc)
 	case FH_PIPEW:
 	  fh = cnew (fhandler_pipe);
 	  break;
-	case FH_TCP:
-	case FH_UDP:
-	case FH_ICMP:
+	case FH_INET:
+	  fh = cnew (fhandler_socket_inet);
+	  break;
+	case FH_LOCAL:
+	  fh = cnew (fhandler_socket_local);
+	  break;
 	case FH_UNIX:
-	case FH_STREAM:
-	case FH_DGRAM:
-	  fh = cnew (fhandler_socket);
+	  fh = cnew (fhandler_socket_unix);
 	  break;
 	case FH_FS:
 	  fh = cnew (fhandler_disk_file);
@@ -597,9 +591,6 @@ fh_alloc (path_conv& pc)
 		fh->set_name ("/dev/tty");
 	    }
 	  break;
-	case FH_KMSG:
-	  fh = cnew (fhandler_mailslot);
-	  break;
       }
     }
 
@@ -648,14 +639,14 @@ build_fh_pc (path_conv& pc)
       debug_printf ("found an archetype for %s(%d/%d) io_handle %p", fh->get_name (), fh->dev ().get_major (), fh->dev ().get_minor (),
 		    fh->archetype->get_io_handle ());
       if (!fh->get_name ())
-	fh->set_name (fh->archetype->dev ().name);
+	fh->set_name (fh->archetype->dev ().name ());
     }
   else if (cygwin_finished_initializing && !pc.isopen ())
     fh->set_name (pc);
   else
     {
       if (!fh->get_name ())
-	fh->set_name (fh->dev ().native);
+	fh->set_name (fh->dev ().native ());
       fh->archetype = fh->clone ();
       debug_printf ("created an archetype (%p) for %s(%d/%d)", fh->archetype, fh->get_name (), fh->dev ().get_major (), fh->dev ().get_minor ());
       fh->archetype->archetype = NULL;
@@ -719,7 +710,6 @@ dtable::dup3 (int oldfd, int newfd, int flags)
   int res = -1;
   fhandler_base *newfh = NULL;	// = NULL to avoid an incorrect warning
 
-  MALLOC_CHECK;
   debug_printf ("dup3 (%d, %d, %y)", oldfd, newfd, flags);
   lock ();
   bool do_unlock = true;
@@ -785,7 +775,6 @@ dtable::dup3 (int oldfd, int newfd, int flags)
   do_unlock = unlock_on_return;
 
 done:
-  MALLOC_CHECK;
   if (do_unlock)
     unlock ();
   syscall_printf ("%R = dup3(%d, %d, %y)", res, oldfd, newfd, flags);

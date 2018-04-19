@@ -1,8 +1,5 @@
 /* fhandler_registry.cc: fhandler for /proc/registry virtual filesystem
 
-   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-   2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -286,7 +283,7 @@ multi_wcstombs (char *dst, size_t len, const wchar_t *src, size_t nwc)
 
   while (nwc)
     {
-      siz = sys_wcstombs (dst, len, src, nwc);
+      siz = sys_wcstombs (dst, len, src, nwc) + 1;
       sum += siz;
       if (dst)
 	{
@@ -452,12 +449,12 @@ out:
 void
 fhandler_registry::set_name (path_conv &in_pc)
 {
-  if (strncasematch (in_pc.normalized_path, "/proc/registry32", 16))
+  if (strncasematch (in_pc.get_posix (), "/proc/registry32", 16))
     {
       wow64 = KEY_WOW64_32KEY;
       prefix_len += 2;
     }
-  else if (strncasematch (in_pc.normalized_path, "/proc/registry64", 16))
+  else if (strncasematch (in_pc.get_posix (), "/proc/registry64", 16))
     {
       wow64 = KEY_WOW64_64KEY;
       prefix_len += 2;
@@ -555,7 +552,8 @@ fhandler_registry::fstat (struct stat *buf)
 		      else
 			buf->st_size = sys_wcstombs (NULL, 0,
 						     (wchar_t *) tmpbuf,
-						     dwSize / sizeof (wchar_t));
+						     dwSize / sizeof (wchar_t))
+				       + 1;
 		      if (tmpbuf)
 			free (tmpbuf);
 		    }
@@ -972,7 +970,7 @@ fhandler_registry::fill_filebuf ()
 	}
       if (type == REG_SZ || type == REG_EXPAND_SZ || type == REG_LINK)
 	bufalloc = sys_wcstombs (NULL, 0, (wchar_t *) tmpbuf,
-				 size / sizeof (wchar_t));
+				 size / sizeof (wchar_t)) + 1;
       else if (type == REG_MULTI_SZ)
 	bufalloc = multi_wcstombs (NULL, 0, (wchar_t *) tmpbuf,
 				   size / sizeof (wchar_t));

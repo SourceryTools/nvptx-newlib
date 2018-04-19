@@ -44,7 +44,7 @@
 /* .text is used instead of .section .text so it works with arm-aout too.  */
 	.text
 	.syntax unified
-#ifdef THUMB_V7_V6M
+#ifdef PREFER_THUMB
 	.thumb
 .macro FUNC_START name
 	.global \name
@@ -98,7 +98,7 @@
 
 	/*  stack limit is at end of data */
 	/*  allow slop for stack overflow handling and small frames */
-#ifdef __ARM_ARCH_6M__
+#ifdef THUMB1_ONLY
 	ldr	r0, .LC2
 	adds	r0, #128
 	adds	r0, #128
@@ -112,7 +112,7 @@
 	/*  Issue Angel SWI to read stack info */
 	movs	r0, #AngelSWI_Reason_HeapInfo
 	adr	r1, .LC0	/*  point at ptr to 4 words to receive data */
-#ifdef THUMB_V7M_V6M
+#ifdef THUMB_VXM
 	bkpt	AngelSWI
 #elif defined(__thumb2__)
 	/*  We are in thumb mode for startup on armv7 architectures. */
@@ -123,6 +123,13 @@
 #endif
 	ldr	r0, .LC0	/*  point at values read */
 
+	/* Set __heap_limit.  */
+	ldr     r1, [r0, #4]
+	cmp     r1, #0
+	beq     .LC33
+	ldr     r2, =__heap_limit
+	str     r1, [r2]
+.LC33:
 	ldr     r1, [r0, #0]
 	cmp     r1, #0
 	bne     .LC32
@@ -149,7 +156,7 @@
 	cmp	r2, #0
 	beq	.LC27
 	/*  allow slop for stack overflow handling and small frames */
-#ifdef __ARM_ARCH_6M__
+#ifdef THUMB1_ONLY
 	adds	r2, #128
 	adds	r2, #128
 	mov	sl, r2
@@ -175,7 +182,7 @@
 #ifdef __thumb2__
 	it	eq
 #endif	
-#ifdef __ARM_ARCH_6M__
+#ifdef THUMB1_ONLY
 	bne	.LC28
 	ldr	r3, .LC0
 .LC28:
@@ -187,7 +194,7 @@
 		 have somehow missed it below (in which case it gets the same
 		 value as FIQ - not ideal, but better than nothing.) */
 	mov	sp, r3
-#ifdef THUMB_V7_V6M
+#ifdef PREFER_THUMB
 	/* XXX Fill in stack assignments for interrupt modes.  */
 #else
 	mrs	r2, CPSR
@@ -230,7 +237,7 @@
 	   this default 64k is enough for the program being executed.
 	   However, it ensures that this simple crt0 world will not
 	   immediately cause an overflow event:  */
-#ifdef __ARM_ARCH_6M__
+#ifdef THUMB1_ONLY
 	movs	r2, #64
 	lsls	r2, r2, #10
 	subs	r2, r3, r2
@@ -250,7 +257,7 @@
 	subs	a3, a3, a1		/* Third arg: length of block */
 	
 
-#if defined(__thumb__) && !defined(THUMB_V7_V6M)
+#if __thumb__ && !defined(PREFER_THUMB)
 	/* Enter Thumb mode.... */
 	add	a4, pc, #1	/* Get the address of the Thumb block */
 	bx	a4		/* Go there and start Thumb decoding  */
@@ -289,9 +296,10 @@ __change_mode:
 	movs	r1, r0
 #else
 	movs	r0, #AngelSWI_Reason_GetCmdLine
-	adr	r1, .LC30	/*  Space for command line */
+	ldr	r1, .LC30	/*  Space for command line */
 	AngelSWIAsm	AngelSWI
 	ldr	r1, .LC30
+	ldr	r1, [r1]
 #endif
 	/*  Parse string at r1 */
 	movs	r0, #0		/*  count of arguments so far */
@@ -421,7 +429,7 @@ __change_mode:
 
 	bl	FUNCTION (exit)		/* Should not return.  */
 
-#if defined(__thumb__) && !defined(THUMB_V7_V6M)
+#if __thumb__ && !defined(PREFER_THUMB)
 	/* Come out of Thumb mode.  This code should be redundant.  */
 
 	mov	a4, pc
@@ -498,8 +506,7 @@ change_back:
 #endif
 #ifdef ARM_RDI_MONITOR
 .LC30:
-	.word	CommandLine
-	.word	255
+	.word	AngelSWIArgs
 .LC31:
 	.word	__end__
 
@@ -512,6 +519,9 @@ HeapLimit:	.word	0
 __stack_base__:	.word	0
 StackLimit:	.word	0
 CommandLine:	.space	256,0	/*  Maximum length of 255 chars handled.  */
+AngelSWIArgs:
+	.word	CommandLine
+	.word	255
 #endif
 	
 #ifdef __pe__

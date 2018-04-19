@@ -500,7 +500,11 @@ static int		tzload(timezone_t sp, const char * name,
 				int doextend);
 static int		tzparse(timezone_t sp, const char * name,
 				int lastditch);
+#ifdef __CYGWIN__
+extern "C" void		tzset_unlocked(void);
+#else
 static void		tzset_unlocked(void);
+#endif
 static long		leapcorr(const timezone_t sp, time_t * timep);
 
 static timezone_t lclptr;
@@ -900,12 +904,18 @@ tzload(timezone_t sp, const char *name, const int doextend)
 		}
 	}
 	free(up);
+	/*
+	** Get latest zone offsets into tzinfo (for newlib). . .
+	*/
 	if (sp == lclptr)
 	  {
-	    __gettzinfo ()->__tzrule[0].offset
-				    = -sp->ttis[1].tt_gmtoff;
-	    __gettzinfo ()->__tzrule[1].offset
-				    = -sp->ttis[0].tt_gmtoff;
+	    for (i = 0; i < sp->timecnt; ++i)
+	      {
+		const struct ttinfo *const ttisp = &sp->ttis[sp->types[i]];
+
+		__gettzinfo ()->__tzrule[ttisp->tt_isdst].offset
+				    = -ttisp->tt_gmtoff;
+	      }
 	  }
 	return 0;
 oops:
@@ -1355,6 +1365,9 @@ tzparse(timezone_t sp, const char *name, const int lastditch)
 					break;
 				janfirst = newfirst;
 			}
+			/*
+			** Get zone offsets into tzinfo (for newlib). . .
+			*/
 			if (sp == lclptr)
 			  {
 			    __gettzinfo ()->__tzrule[0].offset
@@ -1447,6 +1460,9 @@ tzparse(timezone_t sp, const char *name, const int lastditch)
 			sp->ttis[1].tt_isdst = TRUE;
 			sp->ttis[1].tt_abbrind = (int)(stdlen + 1);
 			sp->typecnt = 2;
+			/*
+			** Get zone offsets into tzinfo (for newlib). . .
+			*/
 			if (sp == lclptr)
 			  {
 			    __gettzinfo ()->__tzrule[0].offset
@@ -1463,6 +1479,9 @@ tzparse(timezone_t sp, const char *name, const int lastditch)
 		sp->ttis[0].tt_gmtoff = -stdoffset;
 		sp->ttis[0].tt_isdst = 0;
 		sp->ttis[0].tt_abbrind = 0;
+		/*
+		** Get zone offsets into tzinfo (for newlib). . .
+		*/
 		if (sp == lclptr)
 		  {
 		    __gettzinfo ()->__tzrule[0].offset = -sp->ttis[0].tt_gmtoff;
@@ -1524,7 +1543,8 @@ tzsetwall (void)
 	    GetTimeZoneInformation(&tz);
 	    dst = cp = buf;
 	    for (src = tz.StandardName; *src; src++)
-	      if (isupper(*src)) *dst++ = *src;
+	      if (*src >= L'A' && *src <= L'Z')
+		*dst++ = *src;
 	    if ((dst - cp) < 3)
 	      {
 		/* In non-english Windows, converted tz.StandardName
@@ -1542,7 +1562,8 @@ tzsetwall (void)
 		cp = strchr(cp, 0);
 		dst = cp;
 		for (src = tz.DaylightName; *src; src++)
-		  if (isupper(*src)) *dst++ = *src;
+		  if (*src >= L'A' && *src <= L'Z')
+		    *dst++ = *src;
 		if ((dst - cp) < 3)
 		  {
 		    /* In non-english Windows, converted tz.DaylightName
@@ -1598,6 +1619,9 @@ tzsetwall (void)
 
 static NO_COPY muto tzset_guard;
 
+#ifdef __CYGWIN__
+extern "C"
+#else
 #ifndef STD_INSPIRED
 /*
 ** A non-static declaration of tzsetwall in a system header file
@@ -1605,6 +1629,7 @@ static NO_COPY muto tzset_guard;
 */
 static
 #endif /* !defined STD_INSPIRED */
+#endif
 void
 tzset_unlocked(void)
 {
@@ -1647,6 +1672,8 @@ tzset_unlocked(void)
 			(void) gmtload(lclptr);
 	settzname();
 }
+
+EXPORT_ALIAS (tzset_unlocked, _tzset_unlocked)
 
 extern "C" void
 tzset(void)
@@ -2543,3 +2570,28 @@ posix2time(time_t t)
 }
 
 #endif /* defined STD_INSPIRED */
+
+extern "C" long
+__cygwin_gettzoffset (const struct tm *tmp)
+{
+#ifdef TM_GMTOFF
+  if (CYGWIN_VERSION_CHECK_FOR_EXTRA_TM_MEMBERS)
+    return tmp->TM_GMTOFF;
+#endif /* defined TM_GMTOFF */
+  __tzinfo_type *tz = __gettzinfo ();
+  /* The sign of this is exactly opposite the envvar TZ.  We
+     could directly use the global _timezone for tm_isdst==0,
+     but have to use __tzrule for daylight savings.  */
+  long offset = -tz->__tzrule[tmp->tm_isdst > 0].offset;
+  return offset;
+}
+
+extern "C" const char *
+__cygwin_gettzname (const struct tm *tmp)
+{
+#ifdef TM_ZONE
+  if (CYGWIN_VERSION_CHECK_FOR_EXTRA_TM_MEMBERS)
+    return tmp->TM_ZONE;
+#endif
+  return _tzname[tmp->tm_isdst > 0];
+}

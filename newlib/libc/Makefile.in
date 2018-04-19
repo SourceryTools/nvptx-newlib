@@ -79,19 +79,35 @@ libc_a_SOURCES = libc.c
 libc_a_OBJECTS = libc.$(OBJEXT)
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 am__DEPENDENCIES_1 =
-@USE_LIBTOOL_FALSE@am__DEPENDENCIES_2 = stdlib/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1) ctype/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	string/lib.$(aext) locale/lib.$(aext) \
+@ENABLE_NEWLIB_ICONV_TRUE@am__DEPENDENCIES_2 = iconv/ces/lib.$(aext) \
+@ENABLE_NEWLIB_ICONV_TRUE@	iconv/ccs/lib.$(aext) \
+@ENABLE_NEWLIB_ICONV_TRUE@	iconv/lib/lib.$(aext)
+@USE_LIBTOOL_FALSE@am__DEPENDENCIES_3 = argz/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	stdlib/lib.$(aext) ctype/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	search/lib.$(aext) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	string/lib.$(aext) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	time/lib.$(aext) locale/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	reent/lib.$(aext) $(am__DEPENDENCIES_1) \
-@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1) errno/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	misc/lib.$(aext)
-@USE_LIBTOOL_TRUE@am__DEPENDENCIES_2 = stdlib/libstdlib.$(aext) \
-@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) ctype/libctype.$(aext) \
+@USE_LIBTOOL_FALSE@	errno/lib.$(aext) misc/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	ssp/lib.$(aext) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_2) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1)
+@USE_LIBTOOL_TRUE@am__DEPENDENCIES_3 = argz/libargz.$(aext) \
+@USE_LIBTOOL_TRUE@	stdlib/libstdlib.$(aext) \
+@USE_LIBTOOL_TRUE@	ctype/libctype.$(aext) \
+@USE_LIBTOOL_TRUE@	search/libsearch.$(aext) \
+@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_TRUE@	string/libstring.$(aext) \
+@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) time/libtime.$(aext) \
 @USE_LIBTOOL_TRUE@	locale/liblocale.$(aext) \
 @USE_LIBTOOL_TRUE@	reent/libreent.$(aext) $(am__DEPENDENCIES_1) \
-@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) errno/liberrno.$(aext) \
-@USE_LIBTOOL_TRUE@	misc/libmisc.$(aext)
+@USE_LIBTOOL_TRUE@	errno/liberrno.$(aext) misc/libmisc.$(aext) \
+@USE_LIBTOOL_TRUE@	ssp/libssp.$(aext) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+@USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 am_libc_la_OBJECTS =
 libc_la_OBJECTS = $(am_libc_la_OBJECTS)
 libc_la_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
@@ -174,8 +190,9 @@ AM_RECURSIVE_TARGETS = $(RECURSIVE_TARGETS:-recursive=) \
 	$(RECURSIVE_CLEAN_TARGETS:-recursive=) tags TAGS ctags CTAGS
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = stdlib ctype search stdio string locale reent errno misc \
-	machine .
+DIST_SUBDIRS = argz stdlib ctype search stdio stdio64 string signal \
+	time locale sys reent @extra_dir@ errno misc machine unix \
+	posix syscalls iconv xdr ssp .
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AR = @AR@
@@ -335,32 +352,58 @@ AUTOMAKE_OPTIONS = cygnus
 
 # The order of SUBDIRS is important for the integrated documentation.
 # Do not change the order without considering the doc impact.
-SUBDIRS = stdlib ctype search $(STDIO_SUBDIR) string locale reent errno misc machine .
+SUBDIRS = argz stdlib ctype search $(STDIO_SUBDIR) $(STDIO64_SUBDIR) string $(SIGNAL_SUBDIR) time locale sys reent \
+	$(extra_dir) errno misc machine $(UNIX_SUBDIR) $(POSIX_SUBDIR) $(SYSCALLS_SUBDIR) $(NEWLIB_ICONV_DIRS) \
+	$(XDR_SUBDIR) ssp .
+
 noinst_DATA = $(CRT0)
 @USE_LIBTOOL_TRUE@noinst_LTLIBRARIES = libc.la
 @USE_LIBTOOL_FALSE@SUBLIBS = \
+@USE_LIBTOOL_FALSE@	argz/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	stdlib/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	$(LIBC_STDIO_LIB) \
 @USE_LIBTOOL_FALSE@	ctype/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	search/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	$(LIBC_STDIO_LIB) \
+@USE_LIBTOOL_FALSE@	$(LIBC_STDIO64_LIB) \
+@USE_LIBTOOL_FALSE@	$(LIBC_XDR_LIB) \
 @USE_LIBTOOL_FALSE@	string/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	$(LIBC_SIGNAL_LIB) \
+@USE_LIBTOOL_FALSE@	time/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	locale/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	reent/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	$(LIBC_EXTRA_LIB) \
-@USE_LIBTOOL_FALSE@	$(LIBC_MACHINE_LIB) \
 @USE_LIBTOOL_FALSE@	errno/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	misc/lib.$(aext)
+@USE_LIBTOOL_FALSE@	misc/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	ssp/lib.$(aext) \
+@USE_LIBTOOL_FALSE@	$(LIBC_UNIX_LIB) \
+@USE_LIBTOOL_FALSE@	$(LIBC_POSIX_LIB) \
+@USE_LIBTOOL_FALSE@	$(LIBC_SYSCALL_LIB) \
+@USE_LIBTOOL_FALSE@        $(NEWLIB_ICONV_LIBS) \
+@USE_LIBTOOL_FALSE@	$(LIBC_MACHINE_LIB) \
+@USE_LIBTOOL_FALSE@	$(LIBC_SYS_LIB)
 
 @USE_LIBTOOL_TRUE@SUBLIBS = \
+@USE_LIBTOOL_TRUE@	argz/libargz.$(aext) \
 @USE_LIBTOOL_TRUE@	stdlib/libstdlib.$(aext) \
-@USE_LIBTOOL_TRUE@	$(LIBC_STDIO_LIB) \
 @USE_LIBTOOL_TRUE@	ctype/libctype.$(aext) \
+@USE_LIBTOOL_TRUE@	search/libsearch.$(aext) \
+@USE_LIBTOOL_TRUE@	$(LIBC_STDIO_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_STDIO64_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_XDR_LIB) \
 @USE_LIBTOOL_TRUE@	string/libstring.$(aext) \
+@USE_LIBTOOL_TRUE@	$(LIBC_SIGNAL_LIB) \
+@USE_LIBTOOL_TRUE@	time/libtime.$(aext) \
 @USE_LIBTOOL_TRUE@	locale/liblocale.$(aext) \
 @USE_LIBTOOL_TRUE@	reent/libreent.$(aext) \
 @USE_LIBTOOL_TRUE@	$(LIBC_EXTRA_LIB) \
-@USE_LIBTOOL_TRUE@	$(LIBC_MACHINE_LIB) \
 @USE_LIBTOOL_TRUE@	errno/liberrno.$(aext) \
-@USE_LIBTOOL_TRUE@	misc/libmisc.$(aext)
+@USE_LIBTOOL_TRUE@	misc/libmisc.$(aext) \
+@USE_LIBTOOL_TRUE@	ssp/libssp.$(aext) \
+@USE_LIBTOOL_TRUE@	$(LIBC_UNIX_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_POSIX_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_SYSCALL_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_MACHINE_LIB) \
+@USE_LIBTOOL_TRUE@	$(LIBC_SYS_LIB)
 
 @USE_LIBTOOL_FALSE@noinst_LIBRARIES = libc.a
 libc_la_LDFLAGS = -Xcompiler -nostdlib
@@ -387,6 +430,9 @@ SUBDEFS = \
 	$(LIBC_EXTRA_DEF) \
 	misc/stmp-def
 
+
+# ditto for stmp-xml files in each subdirectory which builds .xml files
+SUBXMLS = $(SUBDEFS:stmp-def=stmp-xml)
 info_TEXINFOS = libc.texinfo
 libc_TEXINFOS = sigset.texi extra.texi posix.texi stdio64.texi iconvset.texi \
 	targetdep.tex $(SUBDEFS)
@@ -395,7 +441,8 @@ CLEANFILES = $(CRT0) \
 	sigset.texi stmp-sigset extra.texi stmp-extra \
 	stdio64.texi stmp-stdio64 targetdep.tex stmp-targetdep \
 	tmp-sigset.texi tmp-iconvset.texi tmp-extra.texi \
-	tmp-stdio64.texi tmp-posix.texi tmp-targetdep.texi
+	tmp-stdio64.texi tmp-posix.texi tmp-targetdep.texi \
+	*.xml *.3
 
 ACLOCAL_AMFLAGS = -I .. -I ../..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host
@@ -609,8 +656,9 @@ dist-info: $(INFO_DEPS)
 	done
 
 mostlyclean-aminfo:
-	-rm -rf libc.aux libc.cp libc.cps libc.fn libc.ky libc.kys libc.log libc.pg \
-	  libc.pgs libc.tmp libc.toc libc.tp libc.tps libc.vr libc.vrs
+	-rm -rf libc.aux libc.cp libc.cps libc.fn libc.fns libc.ky libc.kys \
+	  libc.log libc.pg libc.pgs libc.tmp libc.toc libc.tp libc.tps \
+	  libc.vr libc.vrs
 
 clean-aminfo:
 	-test -z "libc.dvi libc.pdf libc.ps libc.html" \
@@ -901,8 +949,6 @@ install-info-am: $(INFO_DEPS)
 	    install-info --info-dir="$(DESTDIR)$(infodir)" "$(DESTDIR)$(infodir)/$$relfile" || :;\
 	  done; \
 	else : ; fi
-install-man:
-
 install-pdf: install-pdf-recursive
 
 install-pdf-am: $(PDFS)
@@ -1077,6 +1123,23 @@ stmp-targetdep: force
 targetdep.tex: stmp-targetdep ; @true
 
 $(SUBDEFS): stmp-targetdep ; @true
+
+docbook-recursive: force
+	for d in $(SUBDIRS); do \
+	  if test "$$d" != "."; then \
+	    (cd $$d && $(MAKE) docbook) || exit 1; \
+	  fi; \
+	done
+
+$(SUBXMLS): docbook-recursive
+
+man: $(SUBXMLS) libc.in.xml
+	xsltproc --xinclude --path ${builddir} --nonet ${srcdir}/../refcontainers.xslt ${srcdir}/libc.in.xml >libc.xml
+	xmlto --skip-validation man -m ${srcdir}/../man.xsl libc.xml
+
+install-man: man
+	mkdir -p $(DESTDIR)$(mandir)/man3
+	$(INSTALL_DATA) *.3 $(DESTDIR)$(mandir)/man3
 
 .PHONY: force
 force:

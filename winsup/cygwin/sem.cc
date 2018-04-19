@@ -1,7 +1,5 @@
 /* sem.cc: XSI IPC interface for Cygwin.
 
-   Copyright 2002, 2003, 2004, 2005, 2008, 2009, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -85,19 +83,20 @@ semctl (int semid, int semnum, int cmd, ...)
     }
   syscall_printf ("semctl (semid = %d, semnum = %d, cmd = %d, arg = %p)",
 		  semid, semnum, cmd, arg.buf);
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  client_request_sem request (semid, semnum, cmd, &arg);
-  if (request.make_request () == -1 || request.retval () == -1)
+  __try
     {
-      syscall_printf ("-1 [%d] = semctl ()", request.error_code ());
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return -1;
+      client_request_sem request (semid, semnum, cmd, &arg);
+      if (request.make_request () == -1 || request.retval () == -1)
+	{
+	  syscall_printf ("-1 [%d] = semctl ()", request.error_code ());
+	  set_errno (request.error_code ());
+	  __leave;
+	}
+      return request.retval ();
     }
-  return request.retval ();
+  __except (EFAULT) {}
+  __endtry
+  return -1;
 }
 
 extern "C" int
@@ -110,8 +109,6 @@ semget (key_t key, int nsems, int semflg)
     {
       syscall_printf ("-1 [%d] = semget ()", request.error_code ());
       set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
       return -1;
     }
   return request.retval ();
@@ -122,17 +119,18 @@ semop (int semid, struct sembuf *sops, size_t nsops)
 {
   syscall_printf ("semop (semid = %d, sops = %p, nsops = %ld)",
 		  semid, sops, nsops);
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  client_request_sem request (semid, sops, nsops);
-  if (request.make_request () == -1 || request.retval () == -1)
+  __try
     {
-      syscall_printf ("-1 [%d] = semop ()", request.error_code ());
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return -1;
+      client_request_sem request (semid, sops, nsops);
+      if (request.make_request () == -1 || request.retval () == -1)
+	{
+	  syscall_printf ("-1 [%d] = semop ()", request.error_code ());
+	  set_errno (request.error_code ());
+	  __leave;
+	}
+      return request.retval ();
     }
-  return request.retval ();
+  __except (EFAULT) {}
+  __endtry
+  return -1;
 }

@@ -146,6 +146,8 @@ extern double scalb __P((double, double));
 #endif
 extern double significand __P((double));
 
+extern long double __ieee754_hypotl __P((long double, long double));
+
 /* ieee style elementary functions */
 extern double __ieee754_sqrt __P((double));			
 extern double __ieee754_acos __P((double));			
@@ -221,6 +223,17 @@ extern __int32_t __ieee754_rem_pio2f __P((float,float*));
 extern float __ieee754_scalbf __P((float,int));
 #else
 extern float __ieee754_scalbf __P((float,float));
+#endif
+
+#if !__OBSOLETE_MATH
+/* The new math code does not provide separate wrapper function
+   for error handling, so the extern symbol is called directly.
+   This is valid as long as there are no namespace issues (the
+   extern symbol is reserved whenever the caller is reserved)
+   and there are no observable error handling side effects.  */
+# define __ieee754_expf(x) expf(x)
+# define __ieee754_logf(x) logf(x)
+# define __ieee754_powf(x,y) powf(x,y)
 #endif
 
 /* float versions of fdlibm kernel functions */

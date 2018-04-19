@@ -1,8 +1,5 @@
 /* dll_init.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
@@ -25,6 +22,7 @@ details. */
 #include <wchar.h>
 #include <sys/reent.h>
 #include <assert.h>
+#include <tls_pbuf.h>
 
 extern void __stdcall check_sanity_and_sync (per_process *);
 
@@ -86,7 +84,7 @@ dll::init ()
 {
   int ret = 1;
 
-#ifndef __x86_64__
+#ifdef __i386__
   /* This should be a no-op.  Why didn't we just import this variable? */
   if (!p.envptr)
     p.envptr = &__cygwin_environ;
@@ -178,7 +176,9 @@ dll_list::find_by_modname (const PWCHAR modname)
 dll *
 dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
 {
-  WCHAR buf[NT_MAX_PATH];
+  /* Called under loader lock conditions so this function can't be called
+     multiple times in parallel.  A static buffer is safe. */
+  static WCHAR buf[NT_MAX_PATH];
   GetModuleFileNameW (h, buf, NT_MAX_PATH);
   PWCHAR name = buf;
   if (!wcsncmp (name, L"\\\\?\\", 4))
@@ -200,9 +200,8 @@ dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
   dll *d = (type == DLL_LINK) ? dlls.find_by_modname (modname) : dlls[name];
   if (d)
     {
-      if (!in_forkee)
-	d->count++;	/* Yes.  Bump the usage count. */
-      else if (d->handle != h)
+      /* We only get here in the forkee. */
+      if (d->handle != h)
 	fabort ("%W: Loaded to different address: parent(%p) != child(%p)",
 		name, d->handle, h);
       /* If this DLL has been linked against, and the full path differs, try
@@ -224,15 +223,14 @@ dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
     }
   else
     {
-      /* FIXME: Change this to new at some point. */
-      d = (dll *) cmalloc (HEAP_2_DLL, sizeof (*d) + (namelen * sizeof (*name)));
-
+      d = (dll *) cmalloc (HEAP_2_DLL,
+			   sizeof (*d) + (namelen * sizeof (*name)));
       /* Now we've allocated a block of information.  Fill it in with the
 	 supplied info about this DLL. */
-      d->count = 1;
       wcscpy (d->name, name);
       d->modname = d->name + (modname - name);
       d->handle = h;
+      d->count = 0;	/* Reference counting performed in dlopen/dlclose. */
       d->has_dtors = true;
       d->p = p;
       d->ndeps = 0;
@@ -245,7 +243,7 @@ dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
 	loaded_dlls++;
     }
   guard (false);
-#ifndef __x86_64__
+#ifdef __i386__
   assert (p->envptr != NULL);
 #endif
   return d;
@@ -264,14 +262,23 @@ dll_list::append (dll* d)
 
 void dll_list::populate_deps (dll* d)
 {
-  WCHAR wmodname[NT_MAX_PATH];
+  tmp_pathbuf tp;
+
+  PWCHAR wmodname = tp.w_get ();
   pefile* pef = (pefile*) d->handle;
   PIMAGE_DATA_DIRECTORY dd = pef->idata_dir (IMAGE_DIRECTORY_ENTRY_IMPORT);
   /* Annoyance: calling crealloc with a NULL pointer will use the
      wrong heap and crash, so we have to replicate some code */
-  long maxdeps = 4;
-  d->deps = (dll**) cmalloc (HEAP_2_DLL, maxdeps*sizeof (dll*));
-  d->ndeps = 0;
+  long maxdeps;
+  if (!d->ndeps)
+    {
+      maxdeps = 4;
+      d->deps = (dll**) cmalloc (HEAP_2_DLL, maxdeps*sizeof (dll*));
+    }
+  else
+    {
+      maxdeps = d->ndeps;
+    }
   for (PIMAGE_IMPORT_DESCRIPTOR id=
 	(PIMAGE_IMPORT_DESCRIPTOR) pef->rva (dd->VirtualAddress);
       dd->Size && id->Name;
@@ -304,9 +311,45 @@ dll_list::topsort ()
 
   /* make sure we have all the deps available */
   dll* d = &start;
+  dll** dlopen_deps = NULL;
+  long maxdeps = 4;
+  long dlopen_ndeps = 0;
+
+  if (loaded_dlls > 0)
+    dlopen_deps = (dll**) cmalloc (HEAP_2_DLL, maxdeps*sizeof (dll*));
+
   while ((d = d->next))
-    if (!d->ndeps)
-      populate_deps (d);
+    {
+      if (!d->ndeps)
+        {
+          /* Ensure that all dlopen'd DLLs depend on previously dlopen'd DLLs.
+             This prevents topsort from reversing the order of dlopen'd DLLs on
+             calls to fork. */
+          if (d->type == DLL_LOAD)
+            {
+              /* Initialise d->deps with all previously dlopen'd DLLs. */
+              if (dlopen_ndeps)
+                {
+                  d->ndeps = dlopen_ndeps;
+                  d->deps = (dll**) cmalloc (HEAP_2_DLL,
+                                             dlopen_ndeps*sizeof (dll*));
+                  memcpy (d->deps, dlopen_deps, dlopen_ndeps*sizeof (dll*));
+                }
+              /* Add this DLL to the list of previously dlopen'd DLLs. */
+              if (dlopen_ndeps >= maxdeps)
+                {
+                  maxdeps = 2*(1+maxdeps);
+                  dlopen_deps = (dll**) crealloc (dlopen_deps,
+						  maxdeps*sizeof (dll*));
+                }
+              dlopen_deps[dlopen_ndeps++] = d;
+            }
+          populate_deps (d);
+        }
+    }
+
+  if (loaded_dlls > 0)
+    cfree (dlopen_deps);
 
   /* unlink head and tail pointers so the sort can rebuild the list */
   d = start.next;
@@ -393,25 +436,20 @@ dll_list::detach (void *retaddr)
   guard (true);
   if ((d = find (retaddr)))
     {
-      if (d->count <= 0)
-	system_printf ("WARNING: trying to detach an already detached dll ...");
-      if (--d->count == 0)
-	{
-	  /* Ensure our exception handler is enabled for destructors */
-	  exception protect;
-	  /* Call finalize function if we are not already exiting */
-	  if (!exit_state)
-	    __cxa_finalize (d);
-	  d->run_dtors ();
-	  d->prev->next = d->next;
-	  if (d->next)
-	    d->next->prev = d->prev;
-	  if (d->type == DLL_LOAD)
-	    loaded_dlls--;
-	  if (end == d)
-	    end = d->prev;
-	  cfree (d);
-	}
+      /* Ensure our exception handler is enabled for destructors */
+      exception protect;
+      /* Call finalize function if we are not already exiting */
+      if (!exit_state)
+	__cxa_finalize (d->handle);
+      d->run_dtors ();
+      d->prev->next = d->next;
+      if (d->next)
+	d->next->prev = d->prev;
+      if (d->type == DLL_LOAD)
+	loaded_dlls--;
+      if (end == d)
+	end = d->prev;
+      cfree (d);
     }
   guard (false);
 }
@@ -521,13 +559,12 @@ void dll_list::load_after_fork_impl (HANDLE parent, dll* d, int retries)
      We DONT_RESOLVE_DLL_REFERENCES at first in case the DLL lands in
      the wrong spot;
 
-     NOTE: This step skips DLLs which loaded at their preferred
-     address in the parent because they should behave (we already
-     verified that their preferred address in the child is
-     available). However, this may fail on a Vista/Win7 machine with
-     ASLR active, because the ASLR base address will usually not equal
-     the preferred base recorded in the dll. In this case, we should
-     make the LoadLibraryExW call unconditional.
+     NOTE: This step skips DLLs which loaded at their preferred address in
+     the parent because they should behave (we already verified that their
+     preferred address in the child is available). However, this may fail
+     with ASLR active, because the ASLR base address will usually not equal
+     the preferred base recorded in the dll. In this case, we should make
+     the LoadLibraryExW call unconditional.
    */
   for ( ; d; d = dlls.inext ())
     if (d->handle != d->preferred_base)
@@ -597,6 +634,9 @@ void dll_list::load_after_fork_impl (HANDLE parent, dll* d, int retries)
       if (h != d->handle)
 	fabort ("unable to map %W to same address as parent: %p != %p",
 		d->modname, d->handle, h);
+      /* Fix OS reference count. */
+      for (int cnt = 1; cnt < d->count; ++cnt)
+	LoadLibraryW (d->name);
     }
 }
 
@@ -640,7 +680,7 @@ dll_dllcrt0_1 (VOID *x)
      when loaded either statically or dynamically.  Because this leaves
      a stale pointer into demapped memory space if the DLL is unloaded
      by a call to dlclose, we prevent this happening for dynamically
-     loaded DLLS in dlopen by saving and restoring cxx_malloc around
+     loaded DLLs in dlopen by saving and restoring cxx_malloc around
      the call to LoadLibrary, which invokes the DLL's startup sequence.
      Modern DLLs won't even attempt to override the pointer when loaded
      statically, but will write their overrides directly into the
@@ -685,7 +725,7 @@ dll_dllcrt0_1 (VOID *x)
     res = (PVOID) d;
 }
 
-#ifndef __x86_64__
+#ifdef __i386__
 /* OBSOLETE: This function is obsolete and will go away in the
    future.  Cygwin can now handle being loaded from a noncygwin app
    using the same entry point. */
@@ -694,7 +734,7 @@ dll_noncygwin_dllcrt0 (HMODULE h, per_process *p)
 {
   return (int) dll_dllcrt0 (h, p);
 }
-#endif /* !__x86_64__ */
+#endif /* __i386__ */
 
 extern "C" void
 cygwin_detach_dll (dll *)
@@ -713,7 +753,7 @@ dlfork (int val)
   dlls.reload_on_fork = val;
 }
 
-#ifndef __x86_64__
+#ifdef __i386__
 /* Called from various places to update all of the individual
    ideas of the environ block.  Explain to me again why we didn't
    just import __cygwin_environ? */

@@ -1,14 +1,14 @@
-# aem-ve.specs
+# aprofile-ve.specs
 #
 # Spec file for AArch32 A profile baremetal newlib, libgloss on VE platform with AngelAPI
-# semi-hosting.
+# semi-hosting version 2 using the SVC trap instruction.
 #
 # This Spec file is also appropriate for the foundation model.
 
 %rename link old_link
 
 *link:
---defsym=_rdimon_vector_base=0x80000000 -Ttext-segment=0x80008000 %(old_link)
+--defsym=_rdimon_vector_base=0x80000000 -Ttext-segment=0x80010000 %(old_link)
 
 %rename lib libc
 

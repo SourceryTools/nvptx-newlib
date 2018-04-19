@@ -13,13 +13,13 @@
 
 /*
 FUNCTION
-	<<exp2>>, <<exp2f>>--exponential, base 2
+	<<exp2>>, <<exp2f>>---exponential, base 2
 INDEX
 	exp2
 INDEX
 	exp2f
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <math.h>
 	double exp2(double <[x]>);
 	float exp2f(float <[x]>);

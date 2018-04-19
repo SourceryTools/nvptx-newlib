@@ -1,8 +1,5 @@
 /* ntdll.h.  Contains ntdll specific stuff not defined elsewhere.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
-
    This file is part of Cygwin.
 
    This software is a copyrighted work licensed under the terms of the
@@ -11,18 +8,20 @@
 
 #pragma once
 
-#include <ntstatus.h>
+#include <w32api/ntstatus.h>
+
+/* Values for Cygwin AF_UNIX socket reparse points. */
+#define IO_REPARSE_TAG_CYGUNIX	(0x00006375)
+extern GUID __cygwin_socket_guid;
+#define CYGWIN_SOCKET_GUID (&__cygwin_socket_guid)
 
 /* custom status code: */
 #define STATUS_ILLEGAL_DLL_PSEUDO_RELOCATION ((NTSTATUS) 0xe0000269)
 
-/* As of March 2013, Mingw doesn't define these status codes yet. */
-#ifndef STATUS_NETWORK_OPEN_RESTRICTION
-#define STATUS_NETWORK_OPEN_RESTRICTION ((NTSTATUS)0xC0000201)
-#endif
-#ifndef STATUS_SYMLINK_CLASS_DISABLED
-#define STATUS_SYMLINK_CLASS_DISABLED ((NTSTATUS)0xC0000715)
-#endif
+/* Simplify checking for a transactional error code. */
+#define NT_TRANSACTIONAL_ERROR(s)	\
+		(((ULONG)(s) >= (ULONG)STATUS_TRANSACTIONAL_CONFLICT) \
+		 && ((ULONG)(s) <= (ULONG)STATUS_TRANSACTION_NOT_ENLISTED))
 
 #define NtCurrentProcess() ((HANDLE) (LONG_PTR) -1)
 #define NtCurrentThread()  ((HANDLE) (LONG_PTR) -2)
@@ -67,6 +66,7 @@
 
 /* Symbolic link access rights (only in NT namespace). */
 #define SYMBOLIC_LINK_QUERY 1
+#define SYMBOLIC_LINK_ALL_ACCESS (STANDARD_RIGHTS_REQUIRED | 0x1)
 
 /* Transaction access rights. */
 #ifndef TRANSACTION_ALL_ACCESS
@@ -143,9 +143,33 @@
 #define HEAP_FLAG_EXECUTABLE	   0x40000
 #define HEAP_FLAG_DEBUGGED	0x40000000
 
+#define FILE_VC_QUOTA_NONE              0x00000000
+#define FILE_VC_QUOTA_TRACK             0x00000001
+#define FILE_VC_QUOTA_ENFORCE           0x00000002
+#define FILE_VC_QUOTA_MASK              0x00000003
+#define FILE_VC_CONTENT_INDEX_DISABLED  0x00000008
+#define FILE_VC_LOG_QUOTA_THRESHOLD     0x00000010
+#define FILE_VC_LOG_QUOTA_LIMIT         0x00000020
+#define FILE_VC_LOG_VOLUME_THRESHOLD    0x00000040
+#define FILE_VC_LOG_VOLUME_LIMIT        0x00000080
+#define FILE_VC_QUOTAS_INCOMPLETE       0x00000100
+#define FILE_VC_QUOTAS_REBUILDING       0x00000200
+#define FILE_VC_VALID_MASK              0x000003ff
+
 /* IOCTL code to impersonate client of named pipe. */
-#define FSCTL_PIPE_IMPERSONATE CTL_CODE(FILE_DEVICE_NAMED_PIPE, 7, \
+
+#define FSCTL_PIPE_DISCONNECT	CTL_CODE(FILE_DEVICE_NAMED_PIPE, 1, \
+					 METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_PIPE_LISTEN	CTL_CODE(FILE_DEVICE_NAMED_PIPE, 2, \
 					METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_PIPE_PEEK		CTL_CODE(FILE_DEVICE_NAMED_PIPE, 3, \
+					 METHOD_BUFFERED, FILE_READ_DATA)
+#define FSCTL_PIPE_WAIT		CTL_CODE(FILE_DEVICE_NAMED_PIPE, 6, \
+					 METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_PIPE_IMPERSONATE	CTL_CODE(FILE_DEVICE_NAMED_PIPE, 7, \
+					 METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_PIPE_FLUSH	CTL_CODE(FILE_DEVICE_NAMED_PIPE, 16, \
+					 METHOD_BUFFERED, FILE_WRITE_DATA)
 
 typedef enum _FILE_INFORMATION_CLASS
 {
@@ -519,7 +543,8 @@ typedef enum _PROCESSINFOCLASS
   ProcessTimes = 4,
   ProcessSessionInformation = 24,
   ProcessWow64Information = 26,
-  ProcessImageFileName = 27
+  ProcessImageFileName = 27,
+  ProcessDebugFlags = 31
 } PROCESSINFOCLASS;
 
 /* Checked on 64 bit. */
@@ -844,7 +869,7 @@ typedef struct _FILE_NETWORK_OPEN_INFORMATION
 /* Checked on 64 bit. */
 typedef struct _FILE_INTERNAL_INFORMATION
 {
-  LARGE_INTEGER FileId;
+  LARGE_INTEGER IndexNumber;
 } FILE_INTERNAL_INFORMATION, *PFILE_INTERNAL_INFORMATION;
 
 /* Checked on 64 bit. */
@@ -929,11 +954,49 @@ typedef struct _FILE_ALL_INFORMATION {
 
 enum
 {
+  FILE_PIPE_QUEUE_OPERATION = 0,
+  FILE_PIPE_COMPLETE_OPERATION = 1
+};
+
+enum
+{
+  FILE_PIPE_BYTE_STREAM_MODE = 0,
+  FILE_PIPE_MESSAGE_MODE = 1
+};
+
+enum
+{
   FILE_PIPE_DISCONNECTED_STATE = 1,
   FILE_PIPE_LISTENING_STATE = 2,
   FILE_PIPE_CONNECTED_STATE = 3,
   FILE_PIPE_CLOSING_STATE = 4
 };
+
+enum
+{
+  FILE_PIPE_INBOUND = 0,
+  FILE_PIPE_OUTBOUND = 1,
+  FILE_PIPE_FULL_DUPLEX = 2
+};
+
+enum
+{
+  FILE_PIPE_CLIENT_END = 0,
+  FILE_PIPE_SERVER_END = 1
+};
+
+enum
+{
+  FILE_PIPE_BYTE_STREAM_TYPE = 0,
+  FILE_PIPE_MESSAGE_TYPE = 1
+};
+
+/* Checked on 64 bit. */
+typedef struct _FILE_PIPE_INFORMATION
+{
+  ULONG ReadMode;
+  ULONG CompletionMode;
+} FILE_PIPE_INFORMATION, *PFILE_PIPE_INFORMATION;
 
 /* Checked on 64 bit. */
 typedef struct _FILE_PIPE_LOCAL_INFORMATION
@@ -949,6 +1012,23 @@ typedef struct _FILE_PIPE_LOCAL_INFORMATION
   ULONG NamedPipeState;
   ULONG NamedPipeEnd;
 } FILE_PIPE_LOCAL_INFORMATION, *PFILE_PIPE_LOCAL_INFORMATION;
+
+/* Checked on 64 bit. */
+typedef struct _FILE_PIPE_PEEK_BUFFER {
+  ULONG NamedPipeState;
+  ULONG ReadDataAvailable;
+  ULONG NumberOfMessages;
+  ULONG MessageLength;
+  CHAR Data[1];
+} FILE_PIPE_PEEK_BUFFER, *PFILE_PIPE_PEEK_BUFFER;
+
+/* Checked on 64 bit. */
+typedef struct _FILE_PIPE_WAIT_FOR_BUFFER {
+  LARGE_INTEGER Timeout;
+  ULONG NameLength;
+  BOOLEAN TimeoutSpecified;
+  WCHAR Name[1];
+} FILE_PIPE_WAIT_FOR_BUFFER, *PFILE_PIPE_WAIT_FOR_BUFFER;
 
 /* Checked on 64 bit. */
 typedef struct _FILE_COMPRESSION_INFORMATION
@@ -998,6 +1078,16 @@ typedef struct _FILE_FS_SIZE_INFORMATION
   ULONG SectorsPerAllocationUnit;
   ULONG BytesPerSector;
 } FILE_FS_SIZE_INFORMATION, *PFILE_FS_SIZE_INFORMATION;
+
+/* Checked on 64 bit. */
+typedef struct _FILE_FS_CONTROL_INFORMATION {
+  LARGE_INTEGER FreeSpaceStartFiltering;
+  LARGE_INTEGER FreeSpaceThreshold;
+  LARGE_INTEGER FreeSpaceStopFiltering;
+  LARGE_INTEGER DefaultQuotaThreshold;
+  LARGE_INTEGER DefaultQuotaLimit;
+  ULONG FileSystemControlFlags;
+} FILE_FS_CONTROL_INFORMATION, *PFILE_FS_CONTROL_INFORMATION;
 
 /* Checked on 64 bit. */
 typedef struct _FILE_FS_FULL_SIZE_INFORMATION
@@ -1067,6 +1157,24 @@ typedef struct _DIRECTORY_BASIC_INFORMATION
 } DIRECTORY_BASIC_INFORMATION, *PDIRECTORY_BASIC_INFORMATION;
 
 /* Checked on 64 bit. */
+typedef struct _FILE_GET_QUOTA_INFORMATION {
+  ULONG NextEntryOffset;
+  ULONG SidLength;
+  SID Sid;
+} FILE_GET_QUOTA_INFORMATION, *PFILE_GET_QUOTA_INFORMATION;
+
+/* Checked on 64 bit. */
+typedef struct _FILE_QUOTA_INFORMATION {
+  ULONG NextEntryOffset;
+  ULONG SidLength;
+  LARGE_INTEGER ChangeTime;
+  LARGE_INTEGER QuotaUsed;
+  LARGE_INTEGER QuotaThreshold;
+  LARGE_INTEGER QuotaLimit;
+  SID Sid;
+} FILE_QUOTA_INFORMATION, *PFILE_QUOTA_INFORMATION;
+
+/* Checked on 64 bit. */
 typedef struct _FILE_GET_EA_INFORMATION
 {
   ULONG NextEntryOffset;
@@ -1120,7 +1228,8 @@ typedef enum _THREADINFOCLASS
 {
   ThreadBasicInformation = 0,
   ThreadTimes = 1,
-  ThreadImpersonationToken = 5
+  ThreadImpersonationToken = 5,
+  ThreadQuerySetWin32StartAddress = 9
 } THREADINFOCLASS, *PTHREADINFOCLASS;
 
 /* Checked on 64 bit. */
@@ -1180,8 +1289,19 @@ typedef enum _SECTION_INHERIT
 
 typedef VOID (APIENTRY *PTIMER_APC_ROUTINE)(PVOID, ULONG, ULONG);
 
-/* Function declarations for ntdll.dll.  These don't appear in any
-   standard Win32 header.  */
+#ifdef __x86_64__
+typedef struct _SCOPE_TABLE
+{
+  ULONG Count;
+  struct
+  {
+    ULONG BeginAddress;
+    ULONG EndAddress;
+    ULONG HandlerAddress;
+    ULONG JumpTarget;
+  } ScopeRecord[1];
+} SCOPE_TABLE, *PSCOPE_TABLE;
+#endif
 
 #ifdef __cplusplus
 /* This is the mapping of the KUSER_SHARED_DATA structure into the user
@@ -1189,6 +1309,9 @@ typedef VOID (APIENTRY *PTIMER_APC_ROUTINE)(PVOID, ULONG, ULONG);
    We need it here to access the current DismountCount and InterruptTime.  */
 static volatile KUSER_SHARED_DATA &SharedUserData
 	= *(volatile KUSER_SHARED_DATA *) 0x7ffe0000;
+
+/* Function declarations for ntdll.dll.  These don't appear in any
+   standard Win32 header.  */
 
 extern "C"
 {
@@ -1203,6 +1326,7 @@ extern "C"
   NTSTATUS NTAPI NtCancelTimer (HANDLE, PBOOLEAN);
   NTSTATUS NTAPI NtClose (HANDLE);
   NTSTATUS NTAPI NtCommitTransaction (HANDLE, BOOLEAN);
+  NTSTATUS NTAPI NtContinue (PCONTEXT, BOOLEAN);
   NTSTATUS NTAPI NtCreateDirectoryObject (PHANDLE, ACCESS_MASK,
 					  POBJECT_ATTRIBUTES);
   NTSTATUS NTAPI NtCreateKey (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, ULONG,
@@ -1217,10 +1341,18 @@ extern "C"
 				      PLARGE_INTEGER);
   NTSTATUS NTAPI NtCreateMutant (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
 				 BOOLEAN);
+  NTSTATUS NTAPI NtCreateNamedPipeFile (PHANDLE, ACCESS_MASK,
+					POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
+					ULONG, ULONG, ULONG, ULONG, ULONG,
+					ULONG, ULONG, ULONG, ULONG,
+					PLARGE_INTEGER);
   NTSTATUS NTAPI NtCreateSection (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
 				  PLARGE_INTEGER, ULONG, ULONG, HANDLE);
   NTSTATUS NTAPI NtCreateSemaphore (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
 				    LONG, LONG);
+  NTSTATUS NTAPI NtCreateSymbolicLinkObject (PHANDLE, ACCESS_MASK,
+					     POBJECT_ATTRIBUTES,
+					     PUNICODE_STRING);
   NTSTATUS NTAPI NtCreateTimer (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
 				TIMER_TYPE);
   NTSTATUS NTAPI NtCreateToken (PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES,
@@ -1287,8 +1419,11 @@ extern "C"
 					   ULONG, PULONG);
   NTSTATUS NTAPI NtQueryInformationToken (HANDLE, TOKEN_INFORMATION_CLASS,
 					  PVOID, ULONG, PULONG);
-  NTSTATUS NTAPI NtQueryObject (HANDLE, OBJECT_INFORMATION_CLASS, VOID *,
-				ULONG, ULONG *);
+  NTSTATUS NTAPI NtQueryObject (HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG,
+  				PULONG);
+  NTSTATUS NTAPI NtQueryQuotaInformationFile (HANDLE, PIO_STATUS_BLOCK, PVOID,
+					      ULONG, BOOLEAN, PVOID, ULONG,
+					      PSID, BOOLEAN);
   NTSTATUS NTAPI NtQuerySemaphore (HANDLE, SEMAPHORE_INFORMATION_CLASS,
 				   PVOID, ULONG, PULONG);
   NTSTATUS NTAPI NtQuerySystemInformation (SYSTEM_INFORMATION_CLASS,
@@ -1305,9 +1440,8 @@ extern "C"
 				  PULONG);
   NTSTATUS NTAPI NtQueryVirtualMemory (HANDLE, PVOID, MEMORY_INFORMATION_CLASS,
 				       PVOID, SIZE_T, PSIZE_T);
-  NTSTATUS NTAPI NtQueryVolumeInformationFile (HANDLE, IO_STATUS_BLOCK *,
-					       VOID *, ULONG,
-					       FS_INFORMATION_CLASS);
+  NTSTATUS NTAPI NtQueryVolumeInformationFile (HANDLE, PIO_STATUS_BLOCK, PVOID,
+					       ULONG, FS_INFORMATION_CLASS);
   NTSTATUS NTAPI NtReadFile (HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
 			     PIO_STATUS_BLOCK, PVOID, ULONG, PLARGE_INTEGER,
 			     PULONG);
@@ -1319,6 +1453,8 @@ extern "C"
   NTSTATUS NTAPI NtSetInformationThread (HANDLE, THREADINFOCLASS, PVOID, ULONG);
   NTSTATUS NTAPI NtSetInformationToken (HANDLE, TOKEN_INFORMATION_CLASS, PVOID,
 					ULONG);
+  NTSTATUS NTAPI NtSetQuotaInformationFile (HANDLE, PIO_STATUS_BLOCK, PVOID,
+					    ULONG);
   NTSTATUS NTAPI NtSetSecurityObject (HANDLE, SECURITY_INFORMATION,
 				      PSECURITY_DESCRIPTOR);
   NTSTATUS NTAPI NtSetTimer (HANDLE, PLARGE_INTEGER, PTIMER_APC_ROUTINE, PVOID,
@@ -1326,10 +1462,13 @@ extern "C"
   NTSTATUS NTAPI NtSetTimerResolution (ULONG, BOOLEAN, PULONG);
   NTSTATUS NTAPI NtSetValueKey (HANDLE, PUNICODE_STRING, ULONG, ULONG, PVOID,
 				ULONG);
+  NTSTATUS NTAPI NtSetVolumeInformationFile (HANDLE, PIO_STATUS_BLOCK, PVOID,
+					     ULONG, FS_INFORMATION_CLASS);
   NTSTATUS NTAPI NtUnlockFile (HANDLE, PIO_STATUS_BLOCK, PLARGE_INTEGER,
 			       PLARGE_INTEGER, ULONG);
   NTSTATUS NTAPI NtUnlockVirtualMemory (HANDLE, PVOID *, PSIZE_T, ULONG);
   NTSTATUS NTAPI NtUnmapViewOfSection (HANDLE, PVOID);
+  NTSTATUS NTAPI NtWaitForSingleObject (HANDLE, BOOLEAN, PLARGE_INTEGER);
   NTSTATUS NTAPI NtWriteFile (HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
 			      PIO_STATUS_BLOCK, PVOID, ULONG, PLARGE_INTEGER,
 			      PULONG);
@@ -1388,11 +1527,11 @@ extern "C"
 					       PACL *, PBOOLEAN);
   NTSTATUS NTAPI RtlGetGroupSecurityDescriptor (PSECURITY_DESCRIPTOR, PSID *,
 						PBOOLEAN);
+  NTSTATUS NTAPI RtlGetNtVersionNumbers (LPDWORD, LPDWORD, LPDWORD);
   NTSTATUS NTAPI RtlGetOwnerSecurityDescriptor (PSECURITY_DESCRIPTOR, PSID *,
 						PBOOLEAN);
   NTSTATUS NTAPI RtlGetVersion (PRTL_OSVERSIONINFOEXW);
   PSID_IDENTIFIER_AUTHORITY NTAPI RtlIdentifierAuthoritySid (PSID);
-  VOID NTAPI RtlInitEmptyUnicodeString (PUNICODE_STRING, PCWSTR, USHORT);
   VOID NTAPI RtlInitAnsiString (PANSI_STRING, PCSTR);
   NTSTATUS NTAPI RtlInitializeSid (PSID, PSID_IDENTIFIER_AUTHORITY, UCHAR);
   VOID NTAPI RtlInitUnicodeString (PUNICODE_STRING, PCWSTR);
@@ -1544,6 +1683,34 @@ extern "C"
 				     &ebi, sizeof ebi, NULL))
 	   && ebi.SignalState != 0;
 
+  }
+
+  static inline void
+  start_transaction (HANDLE &old_trans, HANDLE &trans)
+  {
+    NTSTATUS status = NtCreateTransaction (&trans,
+				  SYNCHRONIZE | TRANSACTION_ALL_ACCESS,
+				  NULL, NULL, NULL, 0, 0, 0, NULL, NULL);
+    if (NT_SUCCESS (status))
+      {
+	old_trans = RtlGetCurrentTransaction ();
+	RtlSetCurrentTransaction (trans);
+      }
+    else
+      old_trans = trans = NULL;
+  }
+
+  static inline NTSTATUS
+  stop_transaction (NTSTATUS status, HANDLE old_trans, HANDLE &trans)
+  {
+    RtlSetCurrentTransaction (old_trans);
+    if (NT_SUCCESS (status))
+      status = NtCommitTransaction (trans, TRUE);
+    else
+      status = NtRollbackTransaction (trans, TRUE);
+    NtClose (trans);
+    trans = NULL;
+    return status;
   }
 }
 #endif

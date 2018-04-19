@@ -1,8 +1,5 @@
 /* Posix dirent.h for WIN32.
 
-   Copyright 2001, 2002, 2003, 2005, 2006, 2007, 2008, 2010, 2012,
-   2013 Red Hat, Inc.
-
    This software is a copyrighted work licensed under the terms of the
    Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
    details. */
@@ -12,12 +9,13 @@
 #ifndef _SYS_DIRENT_H
 #define _SYS_DIRENT_H
 
+#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <limits.h>
 
 #define __DIRENT_VERSION	2
 
-#ifndef __x86_64__
+#ifdef __i386__
 #pragma pack(push,4)
 #endif
 #define _DIRENT_HAVE_D_TYPE
@@ -30,7 +28,7 @@ struct dirent
   __uint32_t __d_internal1;
   char d_name[NAME_MAX + 1];
 };
-#ifndef __x86_64__
+#ifdef __i386__
 #pragma pack(pop)
 #endif
 
@@ -42,7 +40,7 @@ struct dirent
 #define __DIRENT_COOKIE 0xdede4242
 #endif
 
-#ifndef __x86_64__
+#ifdef __i386__
 #pragma pack(push,4)
 #endif
 typedef struct __DIR
@@ -58,7 +56,7 @@ typedef struct __DIR
   void *__fh;
   unsigned __flags;
 } DIR;
-#ifndef __x86_64__
+#ifdef __i386__
 #pragma pack(pop)
 #endif
 
@@ -72,22 +70,29 @@ int closedir (DIR *);
 
 int dirfd (DIR *);
 
-#ifndef _POSIX_SOURCE
+#if __MISC_VISIBLE || __XSI_VISIBLE
 #ifndef __INSIDE_CYGWIN__
 long telldir (DIR *);
 void seekdir (DIR *, long loc);
 #endif
+#endif
 
+#if __MISC_VISIBLE || __POSIX_VISIBLE >= 200809
 int scandir (const char *__dir,
 	     struct dirent ***__namelist,
 	     int (*select) (const struct dirent *),
 	     int (*compar) (const struct dirent **, const struct dirent **));
+int alphasort (const struct dirent **__a, const struct dirent **__b);
+#endif
 
+#if __GNU_VISIBLE
 int scandirat (int __dirfd, const char *__dir, struct dirent ***__namelist,
 	       int (*select) (const struct dirent *),
 	       int (*compar) (const struct dirent **, const struct dirent **));
+int versionsort (const struct dirent **__a, const struct dirent **__b);
+#endif
 
-int alphasort (const struct dirent **__a, const struct dirent **__b);
+#if __BSD_VISIBLE
 #ifdef _DIRENT_HAVE_D_TYPE
 /* File types for `d_type'.  */
 enum
@@ -116,5 +121,5 @@ enum
 # define IFTODT(mode)		(((mode) & 0170000) >> 12)
 # define DTTOIF(dirtype)        ((dirtype) << 12)
 #endif /* _DIRENT_HAVE_D_TYPE */
-#endif /* _POSIX_SOURCE */
+#endif /* __BSD_VISIBLE */
 #endif /*_SYS_DIRENT_H*/

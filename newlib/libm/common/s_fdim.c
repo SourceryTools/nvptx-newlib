@@ -5,13 +5,13 @@
  */
 /*
 FUNCTION
-<<fdim>>, <<fdimf>>--positive difference
+<<fdim>>, <<fdimf>>---positive difference
 INDEX
 	fdim
 INDEX
 	fdimf
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <math.h>
 	double fdim(double <[x]>, double <[y]>);
 	float fdimf(float <[x]>, float <[y]>);

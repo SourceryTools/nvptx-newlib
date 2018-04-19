@@ -1,8 +1,5 @@
 /* select.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -32,7 +29,6 @@ details. */
 #include "pinfo.h"
 #include "sigproc.h"
 #include "cygtls.h"
-#include "cygwait.h"
 
 /*
  * All these defines below should be in sys/types.h
@@ -77,51 +73,79 @@ details. */
   (fd_set *) __res; \
 })
 
-#define copyfd_set(to, from, n) memcpy (to, from, sizeof_fd_set (n));
-
 #define set_handle_or_return_if_not_open(h, s) \
-  h = (s)->fh->get_handle (); \
+  h = (s)->fh->get_io_handle_cyg (); \
   if (cygheap->fdtab.not_open ((s)->fd)) \
     { \
       (s)->thread_errno =  EBADF; \
       return -1; \
     }
 
-static int select (int, fd_set *, fd_set *, fd_set *, DWORD);
+static int select (int, fd_set *, fd_set *, fd_set *, LONGLONG);
 
 /* The main select code.  */
+extern "C" int
+pselect (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+	const struct timespec *to, const sigset_t *set)
+{
+  sigset_t oldset = _my_tls.sigmask;
+
+  __try
+    {
+      if (set)
+	set_signal_mask (_my_tls.sigmask, *set);
+
+      select_printf ("pselect (%d, %p, %p, %p, %p, %p)", maxfds, readfds, writefds, exceptfds, to, set);
+
+      pthread_testcancel ();
+      int res;
+      if (maxfds < 0)
+	{
+	  set_errno (EINVAL);
+	  res = -1;
+	}
+      else
+	{
+	  /* Convert to microseconds or -1 if to == NULL */
+	  LONGLONG us = to ? to->tv_sec * USPERSEC
+			     + (to->tv_nsec + (NSPERSEC/USPERSEC) - 1)
+			       / (NSPERSEC/USPERSEC)
+			   : -1LL;
+
+	  if (to)
+	    select_printf ("to->tv_sec %ld, to->tv_nsec %ld, us %D", to->tv_sec, to->tv_nsec, us);
+	  else
+	    select_printf ("to NULL, us %D", us);
+
+	  res = select (maxfds, readfds ?: allocfd_set (maxfds),
+			writefds ?: allocfd_set (maxfds),
+			exceptfds ?: allocfd_set (maxfds), us);
+	}
+      syscall_printf ("%R = select (%d, %p, %p, %p, %p)", res, maxfds, readfds,
+		      writefds, exceptfds, to);
+
+      if (set)
+	set_signal_mask (_my_tls.sigmask, oldset);
+      return res;
+    }
+  __except (EFAULT) {}
+  __endtry
+  return -1;
+}
+
+/* select () is just a wrapper on pselect (). */
 extern "C" int
 cygwin_select (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 	       struct timeval *to)
 {
-  select_printf ("select(%d, %p, %p, %p, %p)", maxfds, readfds, writefds, exceptfds, to);
-
-  pthread_testcancel ();
-  int res;
-  if (maxfds < 0)
+  struct timespec ts;
+  if (to)
     {
-      set_errno (EINVAL);
-      res = -1;
+      ts.tv_sec = to->tv_sec;
+      ts.tv_nsec = to->tv_usec * 1000;
     }
-  else
-    {
-      /* Convert to milliseconds or INFINITE if to == NULL */
-      DWORD ms = to ? (to->tv_sec * 1000) + (to->tv_usec / 1000) : INFINITE;
-      if (ms == 0 && to->tv_usec)
-	ms = 1;			/* At least 1 ms granularity */
-
-      if (to)
-	select_printf ("to->tv_sec %ld, to->tv_usec %ld, ms %d", to->tv_sec, to->tv_usec, ms);
-      else
-	select_printf ("to NULL, ms %x", ms);
-
-      res = select (maxfds, readfds ?: allocfd_set (maxfds),
-		    writefds ?: allocfd_set (maxfds),
-		    exceptfds ?: allocfd_set (maxfds), ms);
-    }
-  syscall_printf ("%R = select(%d, %p, %p, %p, %p)", res, maxfds, readfds,
-		  writefds, exceptfds, to);
-  return res;
+  return pselect (maxfds, readfds, writefds, exceptfds,
+		  to ? &ts : NULL, NULL);
 }
 
 /* This function is arbitrarily split out from cygwin_select to avoid odd
@@ -129,11 +153,13 @@ cygwin_select (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
    for the sel variable.  */
 static int
 select (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-	DWORD ms)
+	LONGLONG us)
 {
-  int res = select_stuff::select_loop;
+  select_stuff::wait_states wait_state = select_stuff::select_set_zero;
+  int ret = 0;
 
-  LONGLONG start_time = gtod.msecs ();	/* Record the current time for later use. */
+  /* Record the current time for later use. */
+  LONGLONG start_time = gtod.usecs ();
 
   select_stuff sel;
   sel.return_on_signal = 0;
@@ -143,7 +169,7 @@ select (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   fd_set *w = allocfd_set (maxfds);
   fd_set *e = allocfd_set (maxfds);
 
-  while (res == select_stuff::select_loop)
+  do
     {
       /* Build the select record per fd linked list and set state as
 	 needed. */
@@ -155,95 +181,58 @@ select (int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 	  }
       select_printf ("sel.always_ready %d", sel.always_ready);
 
-      /* Degenerate case.  No fds to wait for.  Just wait for time to run out
-	 or signal to arrive. */
-      if (sel.start.next == NULL)
-	switch (cygwait (ms))
-	  {
-	  case WAIT_SIGNALED:
-	    select_printf ("signal received");
-	    /* select() is always interrupted by a signal so set EINTR,
-	       unconditionally, ignoring any SA_RESTART detection by
-	       call_signal_handler().  */
-	    _my_tls.call_signal_handler ();
-	    set_sig_errno (EINTR);
-	    res = select_stuff::select_signalled;
-	    break;
-	  case WAIT_CANCELED:
-	    sel.destroy ();
-	    pthread::static_cancel_self ();
-	    /*NOTREACHED*/
-	  default:
-	    res = select_stuff::select_set_zero;	/* Set res to zero below. */
-	    break;
-	  }
-      else if (sel.always_ready || ms == 0)
-	res = 0;					/* Catch any active fds via
-							   sel.poll() below */
+      if (sel.always_ready || us == 0)
+	/* Catch any active fds via sel.poll () below */
+	wait_state = select_stuff::select_ok;
       else
-	res = sel.wait (r, w, e, ms);			/* wait for an fd to become
-							   become active or time out */
-      select_printf ("res %d", res);
-      if (res >= 0)
+	/* wait for an fd to become active or time out */
+	wait_state = sel.wait (r, w, e, us);
+
+      select_printf ("sel.wait returns %d", wait_state);
+
+      if (wait_state == select_stuff::select_ok)
 	{
-	  copyfd_set (readfds, r, maxfds);
-	  copyfd_set (writefds, w, maxfds);
-	  copyfd_set (exceptfds, e, maxfds);
-	  if (res == select_stuff::select_set_zero)
-	    res = 0;
-	  else
-	    /* Set the bit mask from sel records */
-	    res = sel.poll (readfds, writefds, exceptfds) ?: select_stuff::select_loop;
+	  UNIX_FD_ZERO (readfds, maxfds);
+	  UNIX_FD_ZERO (writefds, maxfds);
+	  UNIX_FD_ZERO (exceptfds, maxfds);
+	  /* Set bit mask from sel records.  This also sets ret to the
+	     right value >= 0, matching the number of bits set in the
+	     fds records.  if ret is 0, continue to loop. */
+	  ret = sel.poll (readfds, writefds, exceptfds);
+	  if (!ret)
+	    wait_state = select_stuff::select_set_zero;
 	}
       /* Always clean up everything here.  If we're looping then build it
 	 all up again.  */
       sel.cleanup ();
       sel.destroy ();
-      /* Recalculate the time remaining to wait if we are going to be looping. */
-      if (res == select_stuff::select_loop && ms != INFINITE)
+      /* Check and recalculate timeout. */
+      if (us != -1LL && wait_state == select_stuff::select_set_zero)
 	{
-	  select_printf ("recalculating ms");
-	  LONGLONG now = gtod.msecs ();
-	  if (now > (start_time + ms))
+	  select_printf ("recalculating us");
+	  LONGLONG now = gtod.usecs ();
+	  if (now >= (start_time + us))
 	    {
 	      select_printf ("timed out after verification");
-	      res = 0;
+	      /* Set descriptor bits to zero per POSIX. */
+	      UNIX_FD_ZERO (readfds, maxfds);
+	      UNIX_FD_ZERO (writefds, maxfds);
+	      UNIX_FD_ZERO (exceptfds, maxfds);
+	      wait_state = select_stuff::select_ok;
+	      ret = 0;
 	    }
 	  else
 	    {
-	      ms -= (now - start_time);
+	      us -= (now - start_time);
 	      start_time = now;
-	      select_printf ("ms now %u", ms);
+	      select_printf ("us now %D", us);
 	    }
 	}
     }
+  while (wait_state == select_stuff::select_set_zero);
 
-  if (res < -1)
-    res = -1;
-  return res;
-}
-
-extern "C" int
-pselect(int maxfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-	const struct timespec *ts, const sigset_t *set)
-{
-  struct timeval tv;
-  sigset_t oldset = _my_tls.sigmask;
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  if (ts)
-    {
-      tv.tv_sec = ts->tv_sec;
-      tv.tv_usec = ts->tv_nsec / 1000;
-    }
-  if (set)
-    set_signal_mask (_my_tls.sigmask, *set);
-  int ret = cygwin_select (maxfds, readfds, writefds, exceptfds,
-			   ts ? &tv : NULL);
-  if (set)
-    set_signal_mask (_my_tls.sigmask, oldset);
+  if (wait_state < select_stuff::select_ok)
+    ret = -1;
   return ret;
 }
 
@@ -344,22 +333,29 @@ err:
 /* The heart of select.  Waits for an fd to do something interesting. */
 select_stuff::wait_states
 select_stuff::wait (fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-		    DWORD ms)
+		    LONGLONG us)
 {
   HANDLE w4[MAXIMUM_WAIT_OBJECTS];
   select_record *s = &start;
-  DWORD m = 0;
+  DWORD m = 0, timer_idx = 0, cancel_idx = 0;
 
-  set_signal_arrived here (w4[m++]);
+  /* Always wait for signals. */
+  wait_signal_arrived here (w4[m++]);
+
+  /* Set a timeout, or not, for WMFO. */
+  DWORD wmfo_timeout = us ? INFINITE : 0;
+
+  /* Optionally wait for pthread cancellation. */
   if ((w4[m] = pthread::get_cancel_event ()) != NULL)
-    m++;
+    cancel_idx = m++;
 
-  DWORD startfds = m;
   /* Loop through the select chain, starting up anything appropriate and
      counting the number of active fds. */
+  DWORD startfds = m;
   while ((s = s->next))
     {
-      if (m >= MAXIMUM_WAIT_OBJECTS)
+      /* Make sure to leave space for the timer, if we have a finite timeout. */
+      if (m >= MAXIMUM_WAIT_OBJECTS - (us > 0LL ? 1 : 0))
 	{
 	  set_sig_errno (EINVAL);
 	  return select_error;
@@ -379,20 +375,58 @@ select_stuff::wait (fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 next_while:;
     }
 
-  debug_printf ("m %d, ms %u", m, ms);
+  /* Optionally create and set a waitable timer if a finite timeout has
+     been requested.  Recycle cw_timer in the cygtls area so we only have
+     to create the timer once per thread.  Since WFMO checks the handles
+     in order, we append the timer as last object, otherwise it's preferred
+     over actual events on the descriptors. */
+  HANDLE &wait_timer = _my_tls.locals.cw_timer;
+  if (us > 0LL)
+    {
+      NTSTATUS status;
+      if (!wait_timer)
+	{
+	  status = NtCreateTimer (&wait_timer, TIMER_ALL_ACCESS, NULL,
+				  NotificationTimer);
+	  if (!NT_SUCCESS (status))
+	    {
+	      select_printf ("%y = NtCreateTimer ()\n", status);
+	      return select_error;
+	    }
+	}
+      LARGE_INTEGER ms_clock_ticks = { .QuadPart = -us * 10 };
+      status = NtSetTimer (wait_timer, &ms_clock_ticks, NULL, NULL, FALSE,
+			   0, NULL);
+      if (!NT_SUCCESS (status))
+	{
+	  select_printf ("%y = NtSetTimer (%D)\n",
+			 status, ms_clock_ticks.QuadPart);
+	  return select_error;
+	}
+      w4[m] = wait_timer;
+      timer_idx = m++;
+    }
+
+  debug_printf ("m %d, us %U, wmfo_timeout %d", m, us, wmfo_timeout);
 
   DWORD wait_ret;
   if (!windows_used)
-    wait_ret = WaitForMultipleObjects (m, w4, FALSE, ms);
+    wait_ret = WaitForMultipleObjects (m, w4, FALSE, wmfo_timeout);
   else
     /* Using MWMO_INPUTAVAILABLE is the officially supported solution for
        the problem that the call to PeekMessage disarms the queue state
        so that a subsequent MWFMO hangs, even if there are still messages
        in the queue. */
-    wait_ret = MsgWaitForMultipleObjectsEx (m, w4, ms,
+    wait_ret = MsgWaitForMultipleObjectsEx (m, w4, wmfo_timeout,
 					    QS_ALLINPUT | QS_ALLPOSTMESSAGE,
 					    MWMO_INPUTAVAILABLE);
   select_printf ("wait_ret %d, m = %d.  verifying", wait_ret, m);
+
+  if (timer_idx)
+    {
+      BOOLEAN current_state;
+      NtCancelTimer (wait_timer, &current_state);
+    }
 
   wait_states res;
   switch (wait_ret)
@@ -417,26 +451,31 @@ next_while:;
       res = select_error;
       break;
     case WAIT_TIMEOUT:
+was_timeout:
       select_printf ("timed out");
       res = select_set_zero;
       break;
     case WAIT_OBJECT_0 + 1:
-      if (startfds > 1)
+      /* Cancel event? */
+      if (wait_ret == cancel_idx)
 	{
 	  cleanup ();
 	  destroy ();
 	  pthread::static_cancel_self ();
 	  /*NOTREACHED*/
 	}
-      /* Fall through.  This wasn't a cancel event.  It was just a normal object
-	 to wait for.  */
+      /*FALLTHRU*/
     default:
+      /* Timer event? */
+      if (wait_ret == timer_idx)
+	goto was_timeout;
+
       s = &start;
-      bool gotone = false;
-      /* Some types of objects (e.g., consoles) wake up on "inappropriate" events
-	 like mouse movements.  The verify function will detect these situations.
-	 If it returns false, then this wakeup was a false alarm and we should go
-	 back to waiting. */
+      res = select_set_zero;
+      /* Some types of objects (e.g., consoles) wake up on "inappropriate"
+	 events like mouse movements.  The verify function will detect these
+	 situations.  If it returns false, then this wakeup was a false alarm
+	 and we should go back to waiting. */
       while ((s = s->next))
 	if (s->saw_error ())
 	  {
@@ -444,15 +483,12 @@ next_while:;
 	    res = select_error;		/* Somebody detected an error */
 	    goto out;
 	  }
-	else if ((((wait_ret >= m && s->windows_handle) || s->h == w4[wait_ret]))
+	else if ((((wait_ret >= m && s->windows_handle)
+	           || s->h == w4[wait_ret]))
 		 && s->verify (s, readfds, writefds, exceptfds))
-	  gotone = true;
+	  res = select_ok;
 
-      if (!gotone)
-	res = select_loop;
-      else
-	res = select_ok;
-      select_printf ("gotone %d", gotone);
+      select_printf ("res after verify %d", res);
       break;
     }
 out:
@@ -465,7 +501,7 @@ set_bits (select_record *me, fd_set *readfds, fd_set *writefds,
 	  fd_set *exceptfds)
 {
   int ready = 0;
-  fhandler_socket *sock;
+  fhandler_socket_wsock *sock;
   select_printf ("me %p, testing fd %d (%s)", me, me->fd, me->fh->get_name ());
   if (me->read_selected && me->read_ready)
     {
@@ -475,18 +511,12 @@ set_bits (select_record *me, fd_set *readfds, fd_set *writefds,
   if (me->write_selected && me->write_ready)
     {
       UNIX_FD_SET (me->fd, writefds);
-      if (me->except_on_write && (sock = me->fh->is_socket ()))
+      if (me->except_on_write && (sock = me->fh->is_wsock_socket ()))
 	{
-	  /* Special AF_LOCAL handling. */
-	  if (!me->read_ready && sock->connect_state () == connect_pending
-	      && sock->af_local_connect ())
-	    {
-	      if (me->read_selected)
-		UNIX_FD_SET (me->fd, readfds);
-	      sock->connect_state (connect_failed);
-	    }
-	  else
-	    sock->connect_state (connected);
+	  /* Set readfds entry in case of a failed connect. */
+	  if (!me->read_ready && me->read_selected
+	      && sock->connect_state () == connect_failed)
+	    UNIX_FD_SET (me->fd, readfds);
 	}
       ready++;
     }
@@ -541,45 +571,58 @@ pipe_data_available (int fd, fhandler_base *fh, HANDLE h, bool writing)
 {
   IO_STATUS_BLOCK iosb = {{0}, 0};
   FILE_PIPE_LOCAL_INFORMATION fpli = {0};
+  NTSTATUS status;
 
-  bool res;
   if (fh->has_ongoing_io ())
-    res = false;
-  else if (NtQueryInformationFile (h, &iosb, &fpli, sizeof (fpli),
-				   FilePipeLocalInformation))
+    return 0;
+
+  status = NtQueryInformationFile (h, &iosb, &fpli, sizeof (fpli),
+				   FilePipeLocalInformation);
+  if (!NT_SUCCESS (status))
     {
       /* If NtQueryInformationFile fails, optimistically assume the
 	 pipe is writable.  This could happen if we somehow
 	 inherit a pipe that doesn't permit FILE_READ_ATTRIBUTES
 	 access on the write end.  */
-      select_printf ("fd %d, %s, NtQueryInformationFile failed",
-		     fd, fh->get_name ());
-      res = writing ? true : -1;
+      select_printf ("fd %d, %s, NtQueryInformationFile failed, status %y",
+		     fd, fh->get_name (), status);
+      return writing ? 1 : -1;
     }
-  else if (!writing)
+  if (writing)
+    {
+	/* If there is anything available in the pipe buffer then signal
+	   that.  This means that a pipe could still block since you could
+	   be trying to write more to the pipe than is available in the
+	   buffer but that is the hazard of select().  */
+      fpli.WriteQuotaAvailable = fpli.OutboundQuota - fpli.ReadDataAvailable;
+      if (fpli.WriteQuotaAvailable > 0)
+	{
+	  paranoid_printf ("fd %d, %s, write: size %u, avail %u", fd,
+			   fh->get_name (), fpli.OutboundQuota,
+			   fpli.WriteQuotaAvailable);
+	  return 1;
+	}
+      /* If we somehow inherit a tiny pipe (size < PIPE_BUF), then consider
+	 the pipe writable only if it is completely empty, to minimize the
+	 probability that a subsequent write will block.  */
+      if (fpli.OutboundQuota < PIPE_BUF
+	  && fpli.WriteQuotaAvailable == fpli.OutboundQuota)
+	{
+	  select_printf ("fd, %s, write tiny pipe: size %u, avail %u",
+			 fd, fh->get_name (), fpli.OutboundQuota,
+			 fpli.WriteQuotaAvailable);
+	  return 1;
+	}
+    }
+  else if (fpli.ReadDataAvailable)
     {
       paranoid_printf ("fd %d, %s, read avail %u", fd, fh->get_name (),
 		       fpli.ReadDataAvailable);
-      res = !!fpli.ReadDataAvailable;
+      return 1;
     }
-  else if ((res = (fpli.WriteQuotaAvailable = (fpli.OutboundQuota -
-					       fpli.ReadDataAvailable))))
-    /* If there is anything available in the pipe buffer then signal
-       that.  This means that a pipe could still block since you could
-       be trying to write more to the pipe than is available in the
-       buffer but that is the hazard of select().  */
-    paranoid_printf ("fd %d, %s, write: size %u, avail %u", fd,
-		     fh->get_name (), fpli.OutboundQuota,
-		     fpli.WriteQuotaAvailable);
-  else if ((res = (fpli.OutboundQuota < PIPE_BUF &&
-		   fpli.WriteQuotaAvailable == fpli.OutboundQuota)))
-    /* If we somehow inherit a tiny pipe (size < PIPE_BUF), then consider
-       the pipe writable only if it is completely empty, to minimize the
-       probability that a subsequent write will block.  */
-    select_printf ("fd, %s, write tiny pipe: size %u, avail %u",
-		   fd, fh->get_name (), fpli.OutboundQuota,
-		   fpli.WriteQuotaAvailable);
-  return res ?: -!!(fpli.NamedPipeState & FILE_PIPE_CLOSING_STATE);
+  if (fpli.NamedPipeState & FILE_PIPE_CLOSING_STATE)
+    return -1;
+  return 0;
 }
 
 static int
@@ -607,11 +650,6 @@ peek_pipe (select_record *s, bool from_select)
 	  {
 	    fhandler_pty_master *fhm = (fhandler_pty_master *) fh;
 	    fhm->flush_to_slave ();
-	    if (fhm->need_nl)
-	      {
-		gotone = s->read_ready = true;
-		goto out;
-	      }
 	  }
 	  break;
 	default:
@@ -623,12 +661,15 @@ peek_pipe (select_record *s, bool from_select)
 	    }
 	}
 
-      if (fh->bg_check (SIGTTIN) <= bg_eof)
+      if (fh->bg_check (SIGTTIN, true) <= bg_eof)
 	{
 	  gotone = s->read_ready = true;
 	  goto out;
 	}
       int n = pipe_data_available (s->fd, fh, h, false);
+      /* On PTY masters, check if input from the echo pipe is available. */
+      if (n == 0 && fh->get_echo_handle ())
+	n = pipe_data_available (s->fd, fh, fh->get_echo_handle (), false);
 
       if (n < 0)
 	{
@@ -829,11 +870,16 @@ fhandler_fifo::select_except (select_stuff *ss)
 static int
 peek_console (select_record *me, bool)
 {
-  extern const char * get_nonascii_key (INPUT_RECORD& input_rec, char *);
   fhandler_console *fh = (fhandler_console *) me->fh;
 
   if (!me->read_selected)
     return me->write_ready;
+
+  if (fh->get_cons_readahead_valid ())
+    {
+      select_printf ("cons_readahead");
+      return me->read_ready = true;
+    }
 
   if (fh->get_readahead_valid ())
     {
@@ -854,18 +900,28 @@ peek_console (select_record *me, bool)
   set_handle_or_return_if_not_open (h, me);
 
   for (;;)
-    if (fh->bg_check (SIGTTIN) <= bg_eof)
+    if (fh->bg_check (SIGTTIN, true) <= bg_eof)
       return me->read_ready = true;
-    else if (!PeekConsoleInput (h, &irec, 1, &events_read) || !events_read)
+    else if (!PeekConsoleInputW (h, &irec, 1, &events_read) || !events_read)
       break;
     else
       {
 	fh->send_winch_maybe ();
 	if (irec.EventType == KEY_EVENT)
 	  {
-	    if (irec.Event.KeyEvent.bKeyDown
-		&& (irec.Event.KeyEvent.uChar.AsciiChar
-		    || get_nonascii_key (irec, tmpbuf)))
+	    if (irec.Event.KeyEvent.bKeyDown)
+	      {
+		/* Ignore Alt+Numpad keys. They are eventually handled in the
+		   key-up case below. */
+		if (is_alt_numpad_key (&irec))
+		   ;
+		/* Handle normal input. */
+		else if (irec.Event.KeyEvent.uChar.UnicodeChar
+			 || fhandler_console::get_nonascii_key (irec, tmpbuf))
+		  return me->read_ready = true;
+	      }
+	    /* Ignore key up events, except for Alt+Numpad events. */
+	    else if (is_alt_numpad_event (&irec))
 	      return me->read_ready = true;
 	  }
 	else
@@ -878,7 +934,7 @@ peek_console (select_record *me, bool)
 	  }
 
 	/* Read and discard the event */
-	ReadConsoleInput (h, &irec, 1, &events_read);
+	ReadConsoleInputW (h, &irec, 1, &events_read);
       }
 
   return me->write_ready;
@@ -906,7 +962,7 @@ fhandler_console::select_read (select_stuff *ss)
   s->peek = peek_console;
   s->h = get_handle ();
   s->read_selected = true;
-  s->read_ready = false;
+  s->read_ready = get_readahead_valid ();
   return s;
 }
 
@@ -1269,7 +1325,7 @@ fhandler_base::select_read (select_stuff *ss)
       s->startup = no_startup;
       s->verify = verify_ok;
     }
-  s->h = get_handle ();
+  s->h = get_io_handle_cyg ();
   s->read_selected = true;
   s->read_ready = true;
   return s;
@@ -1308,7 +1364,7 @@ fhandler_base::select_except (select_stuff *ss)
 static int
 peek_socket (select_record *me, bool)
 {
-  fhandler_socket *fh = (fhandler_socket *) me->fh;
+  fhandler_socket_wsock *fh = (fhandler_socket_wsock *) me->fh;
   long events;
   /* Don't play with the settings again, unless having taken a deep look into
      Richard W. Stevens Network Programming book.  Thank you. */
@@ -1432,7 +1488,7 @@ start_thread_socket (select_record *me, select_stuff *stuff)
 	/* No event/socket should show up multiple times.  Every socket
 	   is uniquely identified by its serial number in the global
 	   wsock_events record. */
-	const LONG ser_num = ((fhandler_socket *) s->fh)->serial_number ();
+	const LONG ser_num = ((fhandler_socket_wsock *) s->fh)->serial_number ();
 	for (int i = 1; i < si->num_w4; ++i)
 	  if (si->ser_num[i] == ser_num)
 	    goto continue_outer_loop;
@@ -1461,7 +1517,7 @@ start_thread_socket (select_record *me, select_stuff *stuff)
 	    _my_tls.locals.select.max_w4 += MAXIMUM_WAIT_OBJECTS;
 	  }
 	si->ser_num[si->num_w4] = ser_num;
-	si->w4[si->num_w4++] = ((fhandler_socket *) s->fh)->wsock_event ();
+	si->w4[si->num_w4++] = ((fhandler_socket_wsock *) s->fh)->wsock_event ();
       continue_outer_loop:
 	;
       }
@@ -1493,7 +1549,7 @@ socket_cleanup (select_record *, select_stuff *stuff)
 }
 
 select_record *
-fhandler_socket::select_read (select_stuff *ss)
+fhandler_socket_wsock::select_read (select_stuff *ss)
 {
   select_record *s = ss->start.next;
   if (!s->startup)
@@ -1509,7 +1565,7 @@ fhandler_socket::select_read (select_stuff *ss)
 }
 
 select_record *
-fhandler_socket::select_write (select_stuff *ss)
+fhandler_socket_wsock::select_write (select_stuff *ss)
 {
   select_record *s = ss->start.next;
   if (!s->startup)
@@ -1530,7 +1586,7 @@ fhandler_socket::select_write (select_stuff *ss)
 }
 
 select_record *
-fhandler_socket::select_except (select_stuff *ss)
+fhandler_socket_wsock::select_except (select_stuff *ss)
 {
   select_record *s = ss->start.next;
   if (!s->startup)
@@ -1543,6 +1599,51 @@ fhandler_socket::select_except (select_stuff *ss)
   /* FIXME: Is this right?  Should these be used as criteria for except? */
   s->except_ready = saw_shutdown_write () || saw_shutdown_read ();
   s->except_selected = true;
+  return s;
+}
+
+select_record *
+fhandler_socket_unix::select_read (select_stuff *ss)
+{
+  select_record *s = ss->start.next;
+  if (!s->startup)
+    {
+      s->startup = no_startup;
+      s->verify = verify_ok;
+    }
+  s->h = get_io_handle_cyg ();
+  s->read_selected = true;
+  s->read_ready = true;
+  return s;
+}
+
+select_record *
+fhandler_socket_unix::select_write (select_stuff *ss)
+{
+  select_record *s = ss->start.next;
+  if (!s->startup)
+    {
+      s->startup = no_startup;
+      s->verify = verify_ok;
+    }
+  s->h = get_handle ();
+  s->write_selected = true;
+  s->write_ready = true;
+  return s;
+}
+
+select_record *
+fhandler_socket_unix::select_except (select_stuff *ss)
+{
+  select_record *s = ss->start.next;
+  if (!s->startup)
+    {
+      s->startup = no_startup;
+      s->verify = verify_ok;
+    }
+  s->h = NULL;
+  s->except_selected = true;
+  s->except_ready = false;
   return s;
 }
 
@@ -1621,122 +1722,5 @@ fhandler_windows::select_except (select_stuff *ss)
   s->except_selected = true;
   s->except_ready = false;
   s->windows_handle = true;
-  return s;
-}
-
-static int
-peek_mailslot (select_record *me, bool)
-{
-  HANDLE h;
-  set_handle_or_return_if_not_open (h, me);
-
-  if (me->read_selected && me->read_ready)
-    return 1;
-  DWORD msgcnt = 0;
-  if (!GetMailslotInfo (h, NULL, NULL, &msgcnt, NULL))
-    {
-      select_printf ("mailslot %d(%p) error %E", me->fd, h);
-      return 1;
-    }
-  if (msgcnt > 0)
-    {
-      me->read_ready = true;
-      select_printf ("mailslot %d(%p) ready", me->fd, h);
-      return 1;
-    }
-  select_printf ("mailslot %d(%p) not ready", me->fd, h);
-  return 0;
-}
-
-static int
-verify_mailslot (select_record *me, fd_set *rfds, fd_set *wfds,
-		 fd_set *efds)
-{
-  return peek_mailslot (me, true);
-}
-
-static int start_thread_mailslot (select_record *me, select_stuff *stuff);
-
-static DWORD WINAPI
-thread_mailslot (void *arg)
-{
-  select_mailslot_info *mi = (select_mailslot_info *) arg;
-  bool gotone = false;
-  DWORD sleep_time = 0;
-
-  for (;;)
-    {
-      select_record *s = mi->start;
-      while ((s = s->next))
-	if (s->startup == start_thread_mailslot)
-	  {
-	    if (peek_mailslot (s, true))
-	      gotone = true;
-	    if (mi->stop_thread)
-	      {
-		select_printf ("stopping");
-		goto out;
-	      }
-	  }
-      /* Paranoid check */
-      if (mi->stop_thread)
-	{
-	  select_printf ("stopping from outer loop");
-	  break;
-	}
-      if (gotone)
-	break;
-      Sleep (sleep_time >> 3);
-      if (sleep_time < 80)
-	++sleep_time;
-    }
-out:
-  return 0;
-}
-
-static int
-start_thread_mailslot (select_record *me, select_stuff *stuff)
-{
-  if (stuff->device_specific_mailslot)
-    {
-      me->h = *((select_mailslot_info *) stuff->device_specific_mailslot)->thread;
-      return 1;
-    }
-  select_mailslot_info *mi = new select_mailslot_info;
-  mi->start = &stuff->start;
-  mi->stop_thread = false;
-  mi->thread = new cygthread (thread_mailslot, mi, "mailsel");
-  me->h = *mi->thread;
-  if (!me->h)
-    return 0;
-  stuff->device_specific_mailslot = mi;
-  return 1;
-}
-
-static void
-mailslot_cleanup (select_record *, select_stuff *stuff)
-{
-  select_mailslot_info *mi = (select_mailslot_info *) stuff->device_specific_mailslot;
-  if (!mi)
-    return;
-  if (mi->thread)
-    {
-      mi->stop_thread = true;
-      mi->thread->detach ();
-    }
-  delete mi;
-  stuff->device_specific_mailslot = NULL;
-}
-
-select_record *
-fhandler_mailslot::select_read (select_stuff *ss)
-{
-  select_record *s = ss->start.next;
-  s->startup = start_thread_mailslot;
-  s->peek = peek_mailslot;
-  s->verify = verify_mailslot;
-  s->cleanup = mailslot_cleanup;
-  s->read_selected = true;
-  s->read_ready = false;
   return s;
 }

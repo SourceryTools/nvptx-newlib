@@ -70,11 +70,13 @@ ARFLAGS = cru
 lib_a_AR = $(AR) $(ARFLAGS)
 lib_a_LIBADD =
 am_lib_a_OBJECTS = lib_a-calloc.$(OBJEXT) lib_a-callocr.$(OBJEXT) \
- 	lib_a-free.$(OBJEXT) lib_a-realloc.$(OBJEXT) \
- 	lib_a-reallocr.$(OBJEXT) lib_a-malloc.$(OBJEXT) \
- 	lib_a-mallocr.$(OBJEXT) lib_a-write.$(OBJEXT) lib_a-puts.$(OBJEXT) \
-  	lib_a-putchar.$(OBJEXT) lib_a-printf.$(OBJEXT) \
- 	lib_a-abort.$(OBJEXT) lib_a-exit.$(OBJEXT)
+	lib_a-malloc.$(OBJEXT) lib_a-mallocr.$(OBJEXT) \
+	lib_a-realloc.$(OBJEXT) lib_a-reallocr.$(OBJEXT) \
+	lib_a-free.$(OBJEXT) lib_a-write.$(OBJEXT) \
+	lib_a-assert.$(OBJEXT) lib_a-puts.$(OBJEXT) \
+	lib_a-putchar.$(OBJEXT) lib_a-printf.$(OBJEXT) \
+	lib_a-abort.$(OBJEXT) lib_a-exit.$(OBJEXT) \
+	lib_a-misc.$(OBJEXT)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp =
@@ -83,7 +85,6 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-CCASCOMPILE = $(CCAS) $(AM_CCASFLAGS) $(CCASFLAGS)
 SOURCES = $(lib_a_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
@@ -199,9 +200,9 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 AM_CCASFLAGS = $(INCLUDES)
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = calloc.c callocr.c free.c realloc.c reallocr.c \
-		malloc.c mallocr.c write.c \
-		puts.c putchar.c printf.c abort.c exit.c
+lib_a_SOURCES = calloc.c callocr.c malloc.c mallocr.c realloc.c reallocr.c \
+		free.c write.c assert.c puts.c putchar.c printf.c abort.c \
+		exit.c misc.c
 
 lib_a_CFLAGS = $(AM_CFLAGS)
 ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
@@ -209,7 +210,7 @@ CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host
 all: all-am
 
 .SUFFIXES:
-.SUFFIXES: .c .o .obj .s
+.SUFFIXES: .c .o .obj
 am--refresh: Makefile
 	@:
 $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__configure_deps)
@@ -276,11 +277,17 @@ lib_a-callocr.o: callocr.c
 lib_a-callocr.obj: callocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-callocr.obj `if test -f 'callocr.c'; then $(CYGPATH_W) 'callocr.c'; else $(CYGPATH_W) '$(srcdir)/callocr.c'; fi`
 
-lib_a-free.o: free.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.o `test -f 'free.c' || echo '$(srcdir)/'`free.c
+lib_a-malloc.o: malloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.o `test -f 'malloc.c' || echo '$(srcdir)/'`malloc.c
 
-lib_a-free.obj: free.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.obj `if test -f 'free.c'; then $(CYGPATH_W) 'free.c'; else $(CYGPATH_W) '$(srcdir)/free.c'; fi`
+lib_a-malloc.obj: malloc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.obj `if test -f 'malloc.c'; then $(CYGPATH_W) 'malloc.c'; else $(CYGPATH_W) '$(srcdir)/malloc.c'; fi`
+
+lib_a-mallocr.o: mallocr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-mallocr.o `test -f 'mallocr.c' || echo '$(srcdir)/'`mallocr.c
+
+lib_a-mallocr.obj: mallocr.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-mallocr.obj `if test -f 'mallocr.c'; then $(CYGPATH_W) 'mallocr.c'; else $(CYGPATH_W) '$(srcdir)/mallocr.c'; fi`
 
 lib_a-realloc.o: realloc.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-realloc.o `test -f 'realloc.c' || echo '$(srcdir)/'`realloc.c
@@ -294,23 +301,23 @@ lib_a-reallocr.o: reallocr.c
 lib_a-reallocr.obj: reallocr.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-reallocr.obj `if test -f 'reallocr.c'; then $(CYGPATH_W) 'reallocr.c'; else $(CYGPATH_W) '$(srcdir)/reallocr.c'; fi`
 
-lib_a-malloc.o: malloc.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.o `test -f 'malloc.c' || echo '$(srcdir)/'`malloc.c
+lib_a-free.o: free.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.o `test -f 'free.c' || echo '$(srcdir)/'`free.c
 
-lib_a-malloc.obj: malloc.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-malloc.obj `if test -f 'malloc.c'; then $(CYGPATH_W) 'malloc.c'; else $(CYGPATH_W) '$(srcdir)/malloc.c'; fi`
-
-lib_a-mallocr.o: mallocr.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-mallocr.o `test -f 'mallocr.c' || echo '$(srcdir)/'`mallocr.c
-
-lib_a-mallocr.obj: mallocr.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-mallocr.obj `if test -f 'mallocr.c'; then $(CYGPATH_W) 'mallocr.c'; else $(CYGPATH_W) '$(srcdir)/mallocr.c'; fi`
+lib_a-free.obj: free.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-free.obj `if test -f 'free.c'; then $(CYGPATH_W) 'free.c'; else $(CYGPATH_W) '$(srcdir)/free.c'; fi`
 
 lib_a-write.o: write.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-write.o `test -f 'write.c' || echo '$(srcdir)/'`write.c
 
 lib_a-write.obj: write.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-write.obj `if test -f 'write.c'; then $(CYGPATH_W) 'write.c'; else $(CYGPATH_W) '$(srcdir)/write.c'; fi`
+
+lib_a-assert.o: assert.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-assert.o `test -f 'assert.c' || echo '$(srcdir)/'`assert.c
+
+lib_a-assert.obj: assert.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-assert.obj `if test -f 'assert.c'; then $(CYGPATH_W) 'assert.c'; else $(CYGPATH_W) '$(srcdir)/assert.c'; fi`
 
 lib_a-puts.o: puts.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-puts.o `test -f 'puts.c' || echo '$(srcdir)/'`puts.c
@@ -342,11 +349,11 @@ lib_a-exit.o: exit.c
 lib_a-exit.obj: exit.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-exit.obj `if test -f 'exit.c'; then $(CYGPATH_W) 'exit.c'; else $(CYGPATH_W) '$(srcdir)/exit.c'; fi`
 
-.s.o:
-	$(CCASCOMPILE) -c -o $@ $<
+lib_a-misc.o: misc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-misc.o `test -f 'misc.c' || echo '$(srcdir)/'`misc.c
 
-.s.obj:
-	$(CCASCOMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
+lib_a-misc.obj: misc.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-misc.obj `if test -f 'misc.c'; then $(CYGPATH_W) 'misc.c'; else $(CYGPATH_W) '$(srcdir)/misc.c'; fi`
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \

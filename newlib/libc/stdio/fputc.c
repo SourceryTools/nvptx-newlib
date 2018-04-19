@@ -17,31 +17,30 @@
 
 /*
 FUNCTION
-<<fputc>>---write a character on a stream or file
+<<fputc>>, <<fputc_unlocked>>---write a character on a stream or file
 
 INDEX
 	fputc
 INDEX
+	fputc_unlocked
+INDEX
 	_fputc_r
+INDEX
+	_fputc_unlocked_r
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <stdio.h>
 	int fputc(int <[ch]>, FILE *<[fp]>);
+
+	#define _BSD_SOURCE
+	#include <stdio.h>
+	int fputc_unlocked(int <[ch]>, FILE *<[fp]>);
 
 	#include <stdio.h>
 	int _fputc_r(struct _rent *<[ptr]>, int <[ch]>, FILE *<[fp]>);
 
-TRAD_SYNOPSIS
 	#include <stdio.h>
-	int fputc(<[ch]>, <[fp]>)
-	int <[ch]>;
-	FILE *<[fp]>;
-
-	#include <stdio.h>
-	int _fputc_r(<[ptr]>, <[ch]>, <[fp]>)
-	struct _reent *<[ptr]>;
-	int <[ch]>;
-	FILE *<[fp]>;
+	int _fputc_unlocked_r(struct _rent *<[ptr]>, int <[ch]>, FILE *<[fp]>);
 
 DESCRIPTION
 <<fputc>> converts the argument <[ch]> from an <<int>> to an
@@ -56,8 +55,18 @@ oadvances by one.
 
 For a macro version of this function, see <<putc>>.
 
-The <<_fputc_r>> function is simply a reentrant version of <<fputc>>
-that takes an additional reentrant structure argument: <[ptr]>.
+<<fputc_unlocked>> is a non-thread-safe version of <<fputc>>.
+<<fputc_unlocked>> may only safely be used within a scope
+protected by flockfile() (or ftrylockfile()) and funlockfile().  This
+function may safely be used in a multi-threaded program if and only
+if they are called while the invoking thread owns the (FILE *)
+object, as is the case after a successful call to the flockfile() or
+ftrylockfile() functions.  If threads are disabled, then
+<<fputc_unlocked>> is equivalent to <<fputc>>.
+
+The <<_fputc_r>> and <<_fputc_unlocked_r>> functions are simply reentrant
+versions of the above that take an additional reentrant structure
+argument: <[ptr]>.
 
 RETURNS
 If successful, <<fputc>> returns its argument <[ch]>.  If an error
@@ -66,6 +75,8 @@ query for errors.
 
 PORTABILITY
 <<fputc>> is required by ANSI C.
+
+<<fputc_unlocked>> is a BSD extension also provided by GNU libc.
 
 Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 <<lseek>>, <<read>>, <<sbrk>>, <<write>>.
@@ -76,9 +87,8 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 #include "local.h"
 
 int
-_DEFUN(_fputc_r, (ptr, ch, file),
-       struct _reent *ptr _AND
-       int ch _AND
+_fputc_r (struct _reent *ptr,
+       int ch,
        FILE * file)
 {
   int result;
@@ -91,8 +101,7 @@ _DEFUN(_fputc_r, (ptr, ch, file),
 
 #ifndef _REENT_ONLY
 int
-_DEFUN(fputc, (ch, file),
-       int ch _AND
+fputc (int ch,
        FILE * file)
 {
 #if !defined(__OPTIMIZE_SIZE__) && !defined(PREFER_SIZE_OVER_SPEED)

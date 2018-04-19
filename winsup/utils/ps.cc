@@ -1,8 +1,5 @@
 /* ps.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -134,7 +131,7 @@ print_version ()
 {
   printf ("ps (cygwin) %d.%d.%d\n"
 	  "Show process statistics\n"
-	  "Copyright (C) 1996 - %s Red Hat, Inc.\n"
+	  "Copyright (C) 1996 - %s Cygwin Authors\n"
 	  "This is free software; see the source for copying conditions.  There is NO\n"
 	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
 	  CYGWIN_VERSION_DLL_MAJOR / 1000,
@@ -158,8 +155,8 @@ main (int argc, char *argv[])
   const char *dfmt   = "%7d%4s%10s %s\n";
   const char *ftitle = "     UID     PID    PPID  TTY        STIME COMMAND\n";
   const char *ffmt   = "%8.8s%8d%8d%4s%10s %s\n";
-  const char *ltitle = "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND\n";
-  const char *lfmt   = "%c %7d %7d %7d %10u %4s %4u %8s %s\n";
+  const char *ltitle = "      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND\n";
+  const char *lfmt   = "%c %7d %7d %7d %10u %4s %8u %8s %s\n";
   char ch;
   PUNICODE_STRING uni = (PUNICODE_STRING) unicode_buf;
   void *drive_map = NULL;
@@ -254,32 +251,13 @@ main (int argc, char *argv[])
 	    }
 	}
 
-      /* Check process query capabilities. */
-      OSVERSIONINFO version;
-      version.dwOSVersionInfoSize = sizeof version;
-      GetVersionEx (&version);
-      if (version.dwMajorVersion <= 5)	/* pre-Vista */
-	{
-	  proc_access = PROCESS_QUERY_INFORMATION;
-	  if (version.dwMinorVersion < 1)	/* Windows 2000 */
-	    proc_access |= PROCESS_VM_READ;
-	  else
-	    {
-	    }
-	}
-
-      /* Except on Windows 2000, fetch an opaque drive mapping object from the
-	 Cygwin DLL.  This is used to map NT device paths to Win32 paths. */
-      if (!(proc_access & PROCESS_VM_READ))
-	{
-	  drive_map = (void *) cygwin_internal (CW_ALLOC_DRIVE_MAP);
-	  /* Check old Cygwin version. */
-	  if (drive_map == (void *) -1)
-	    drive_map = NULL;
-	  /* Allow fallback to GetModuleFileNameEx for post-W2K. */
-	  if (!drive_map)
-	    proc_access = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ;
-	}
+      drive_map = (void *) cygwin_internal (CW_ALLOC_DRIVE_MAP);
+      /* Check old Cygwin version. */
+      if (drive_map == (void *) -1)
+	drive_map = NULL;
+      /* Allow fallback to GetModuleFileNameEx. */
+      if (!drive_map)
+	proc_access = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ;
     }
 
   for (int pid = 0;
@@ -332,9 +310,9 @@ main (int argc, char *argv[])
 	  if (!h)
 	    continue;
 	  /* We use NtQueryInformationProcess in the first place, because
-	     GetModuleFileNameEx does not work on 64 bit systems when trying
+	     GetModuleFileNameEx does not work under WOW64 when trying
 	     to fetch module names of 64 bit processes. */
-	  if (!(proc_access & PROCESS_VM_READ))	/* Windows 2000 */
+	  if (!(proc_access & PROCESS_VM_READ))
 	    {
 	      status = NtQueryInformationProcess (h, ProcessImageFileName, uni,
 						  sizeof unicode_buf, NULL);
@@ -358,12 +336,9 @@ main (int argc, char *argv[])
 		    }
 		}
 	    }
-	  else
-	    {
-	      if (GetModuleFileNameExW (h, NULL, (PWCHAR) unicode_buf,
-					NT_MAX_PATH))
-		win32path = (wchar_t *) unicode_buf;
-	    }
+	  else if (GetModuleFileNameExW (h, NULL, (PWCHAR) unicode_buf,
+					 NT_MAX_PATH))
+	    win32path = (wchar_t *) unicode_buf;
 	  if (win32path)
 	    wcstombs (pname, win32path, sizeof pname);
 	  else

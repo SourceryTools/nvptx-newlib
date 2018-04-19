@@ -1,8 +1,5 @@
 /* external.cc: Interface to Cygwin internals from external programs.
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2014 Red Hat, Inc.
-
    Written by Christopher Faylor <cgf@cygnus.com>
 
 This file is part of Cygwin.
@@ -27,6 +24,7 @@ details. */
 #include "environ.h"
 #include "cygserver_setpwd.h"
 #include "pwdgrp.h"
+#include "exception.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -138,7 +136,8 @@ create_winenv (const char * const *env)
 {
   int unused_envc;
   PWCHAR envblock = NULL;
-  char **envp = build_env (env ?: cur_environ (), envblock, unused_envc, false);
+  char **envp = build_env (env ?: cur_environ (), envblock, unused_envc, false,
+			   NULL);
   PWCHAR p = envblock;
 
   if (envp)
@@ -243,11 +242,13 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	break;
 
       case CW_USER_DATA:
+#ifdef __i386__
 	/* This is a kludge to work around a version of _cygwin_common_crt0
 	   which overwrote the cxx_malloc field with the local DLL copy.
 	   Hilarity ensues if the DLL is not loaded like while the process
 	   is forking. */
 	__cygwin_user_data.cxx_malloc = &default_cygwin_cxx_malloc;
+#endif
 	res = (uintptr_t) &__cygwin_user_data;
 	break;
 
@@ -338,7 +339,7 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	  size_t n;
 	  pid_t pid = va_arg (arg, pid_t);
 	  pinfo p (pid);
-	  res = (uintptr_t) p->cmdline (n);
+	  res = (uintptr_t) (p ? p->cmdline (n) : NULL);
 	}
 	break;
       case CW_CHECK_NTSEC:
@@ -599,6 +600,14 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	res = (uintptr_t) cygheap->pg.nss_separator ();
 	break;
 
+      case CW_GETNSS_PWD_SRC:
+	res = (uintptr_t) cygheap->pg.nss_pwd_src ();
+	break;
+
+      case CW_GETNSS_GRP_SRC:
+	res = (uintptr_t) cygheap->pg.nss_grp_src ();
+	break;
+
       case CW_GETPWSID:
 	{
 	  int db_only = va_arg (arg, int);
@@ -669,6 +678,34 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 
 	  buffer[0] = '\0';
 	  strncat (buffer, pw->pw_name, buflen - 1);
+	  res = 0;
+	}
+	break;
+
+      case CW_FIXED_ATEXIT:
+	res = 0;
+	break;
+
+      case CW_EXCEPTION_RECORD_FROM_SIGINFO_T:
+	{
+	  siginfo_t *si = va_arg(arg, siginfo_t *);
+	  EXCEPTION_RECORD *er = va_arg(arg, EXCEPTION_RECORD *);
+	  if (si && si->si_cyg && er)
+	    {
+	      memcpy(er, ((cygwin_exception *)si->si_cyg)->exception_record(),
+		     sizeof(EXCEPTION_RECORD));
+	      res = 0;
+	    }
+	}
+	break;
+
+      case CW_CYGHEAP_PROFTHR_ALL:
+	{
+	  typedef void (*func_t) (HANDLE);
+	  extern void cygheap_profthr_all (func_t);
+
+	  func_t profthr_byhandle = va_arg(arg, func_t);
+	  cygheap_profthr_all (profthr_byhandle);
 	  res = 0;
 	}
 	break;

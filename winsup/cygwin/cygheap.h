@@ -1,8 +1,5 @@
 /* cygheap.h: Cygwin heap manager.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -210,17 +207,16 @@ enum fcwd_version_t {
   FCWD_W8
 };
 
-/* This class is used to store the CWD starting with Windows Vista.
-   The CWD storage in the RTL_USER_PROCESS_PARAMETERS block is only
-   an afterthought now.  The actual CWD storage is a FAST_CWD structure
-   which is allocated on the process heap.  The new method only requires
-   minimal locking and it's much more multi-thread friendly.  Presumably
-   it minimizes contention when accessing the CWD.
+/* This class is used to store the CWD.  The CWD storage in the
+   RTL_USER_PROCESS_PARAMETERS block is only an afterthought now.  The actual
+   CWD storage is a FAST_CWD structure which is allocated on the process heap.
+   The new method only requires minimal locking and it's much more multi-thread
+   friendly.  Presumably it minimizes contention when accessing the CWD.
    The class fcwd_access_t is supposed to encapsulate the gory implementation
    details depending on OS version from the calling functions.
    The layout of all structures has been tested on 32 and 64 bit. */
 class fcwd_access_t {
-  /* This is the layout used in Windows 8. */
+  /* This is the layout used in Windows 8 and later. */
   struct FAST_CWD_8 {
     LONG           ReferenceCount;	/* Only release when this is 0. */
     HANDLE         DirectoryHandle;
@@ -308,14 +304,23 @@ private:
      available in shared memory avoids to test for the version every time
      around.  Default to new version. */
   fcwd_version_t fast_cwd_version;
-  void override_win32_cwd (bool, ULONG);
+  void override_win32_cwd (bool init, ULONG old_dismount_count);
 
 public:
   UNICODE_STRING win32;
   static muto cwd_lock;
   const char *get_posix () const { return posix; };
-  void reset_posix (wchar_t *);
-  char *get (char *, int = 1, int = 0, unsigned = NT_MAX_PATH);
+  void reset_posix (wchar_t *w_cwd);
+  char *get (char *buf, int need_posix = 1, int with_chroot = 0,
+	     unsigned ulen = NT_MAX_PATH);
+  PWCHAR get (PWCHAR buf, unsigned buflen = NT_MAX_PATH)
+  {
+    cwd_lock.acquire ();
+    buf[0] = L'\0';
+    wcsncat (buf, win32.Buffer, buflen - 1);
+    cwd_lock.release ();
+    return buf;
+  }
   HANDLE get_handle () { return dir; }
   DWORD get_drive (char * dst)
   {
@@ -341,8 +346,6 @@ struct cygheap_debug
 struct cygheap_locale
 {
   mbtowc_p mbtowc;
-  wctomb_p wctomb;
-  char charset[ENCODING_LEN + 1];
 };
 
 struct user_heap_info
@@ -371,8 +374,6 @@ class cygheap_domain_info
   PWCHAR rfc2307_domain_buf;
 
 public:
-  ULONG lowest_tdo_posix_offset;
-
   bool init ();
 
   inline PCWSTR primary_flat_name () const { return pdom_name; }
@@ -386,6 +387,7 @@ public:
 
   inline PDS_DOMAIN_TRUSTSW trusted_domain (ULONG idx) const
     { return (idx < tdom_count) ? tdom + idx : NULL; }
+  PDS_DOMAIN_TRUSTSW add_domain (PCWSTR, PSID);
 
   inline PWCHAR get_rfc2307_domain () const
     { return rfc2307_domain_buf ?: NULL; }
@@ -393,21 +395,40 @@ public:
 
 class cygheap_pwdgrp
 {
-  static const int NSS_FILES = 1;
-  static const int NSS_DB = 2;
-  enum pfx_t {
-    NSS_AUTO = 0,
-    NSS_PRIMARY,
-    NSS_ALWAYS
+  enum nss_pfx_t {
+    NSS_PFX_AUTO = 0,
+    NSS_PFX_PRIMARY,
+    NSS_PFX_ALWAYS
   };
-  bool    nss_inited;
-  int     pwd_src;
-  int     grp_src;
-  pfx_t   prefix;
-  WCHAR   separator[2];
-  bool    caching;
-  int	  enums;
-  PWCHAR  enum_tdoms;
+public:
+  enum nss_scheme_method {
+    NSS_SCHEME_FALLBACK = 0,
+    NSS_SCHEME_WINDOWS,
+    NSS_SCHEME_CYGWIN,
+    NSS_SCHEME_UNIX,
+    NSS_SCHEME_DESC,
+    NSS_SCHEME_PATH,
+    NSS_SCHEME_FREEATTR
+  };
+  struct nss_scheme_t {
+    nss_scheme_method	method;
+    PWCHAR		attrib;
+  };
+private:
+  bool		nss_inited;
+  uint32_t	pwd_src;
+  uint32_t	grp_src;
+  nss_pfx_t	prefix;
+  WCHAR		separator[2];
+  bool		caching;
+
+#define NSS_SCHEME_MAX	4
+  nss_scheme_t	home_scheme[NSS_SCHEME_MAX];
+  nss_scheme_t	shell_scheme[NSS_SCHEME_MAX];
+  nss_scheme_t	gecos_scheme[NSS_SCHEME_MAX];
+
+  uint32_t	enums;
+  PWCHAR	enum_tdoms;
 
   void nss_init_line (const char *line);
   void _nss_init ();
@@ -426,17 +447,39 @@ public:
 
   void init ();
 
+  /* Implemented in ldap.cc */
+  PWCHAR *ldap_user_attr;
+  void init_ldap_user_attr ();
+
   inline void nss_init () { if (!nss_inited) _nss_init (); }
-  inline bool nss_pwd_files () const { return !!(pwd_src & NSS_FILES); }
-  inline bool nss_pwd_db () const { return !!(pwd_src & NSS_DB); }
-  inline bool nss_grp_files () const { return !!(grp_src & NSS_FILES); }
-  inline bool nss_grp_db () const { return !!(grp_src & NSS_DB); }
-  inline bool nss_prefix_auto () const { return prefix == NSS_AUTO; }
-  inline bool nss_prefix_primary () const { return prefix == NSS_PRIMARY; }
-  inline bool nss_prefix_always () const { return prefix == NSS_ALWAYS; }
+  inline bool nss_pwd_files () const { return !!(pwd_src & NSS_SRC_FILES); }
+  inline bool nss_pwd_db () const { return !!(pwd_src & NSS_SRC_DB); }
+  inline int  nss_pwd_src () const { return pwd_src; } /* CW_GETNSS_PWD_SRC */
+  inline bool nss_grp_files () const { return !!(grp_src & NSS_SRC_FILES); }
+  inline bool nss_grp_db () const { return !!(grp_src & NSS_SRC_DB); }
+  inline int  nss_grp_src () const { return grp_src; } /* CW_GETNSS_GRP_SRC */
+  inline bool nss_prefix_auto () const { return prefix == NSS_PFX_AUTO; }
+  inline bool nss_prefix_primary () const { return prefix == NSS_PFX_PRIMARY; }
+  inline bool nss_prefix_always () const { return prefix == NSS_PFX_ALWAYS; }
   inline PCWSTR nss_separator () const { return separator; }
   inline bool nss_cygserver_caching () const { return caching; }
   inline void nss_disable_cygserver_caching () { caching = false; }
+
+  char *get_home (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom, PCWSTR dnsdomain,
+		  PCWSTR name, bool fq);
+  char *get_home (struct _USER_INFO_3 *ui, cygpsid &sid, PCWSTR dom,
+		  PCWSTR name, bool fq);
+
+  char *get_shell (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom, PCWSTR dnsdomain,
+		   PCWSTR name, bool fq);
+  char *get_shell (struct _USER_INFO_3 *ui, cygpsid &sid, PCWSTR dom,
+		   PCWSTR name, bool fq);
+
+  char *get_gecos (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom, PCWSTR dnsdomain,
+		   PCWSTR name, bool fq);
+  char *get_gecos (struct _USER_INFO_3 *ui, cygpsid &sid, PCWSTR dom,
+		   PCWSTR name, bool fq);
+
   inline int nss_db_enums () const { return enums; }
   inline PCWSTR nss_db_enum_tdoms () const { return enum_tdoms; }
 };
@@ -459,6 +502,13 @@ class cygheap_ugid_cache
 	  return _map[i].cyg_id;
       return (uint32_t) -1;
     }
+    uint32_t reverse_get (uint32_t id) const
+    {
+      for (uint32_t i = 0; i < _cnt; ++i)
+	if (_map[i].cyg_id == id)
+	  return _map[i].nfs_id;
+      return (uint32_t) -1;
+    }
     void add (uint32_t nfs_id, uint32_t cyg_id)
     {
       if (_cnt >= _max)
@@ -474,6 +524,8 @@ class cygheap_ugid_cache
 public:
   uid_t get_uid (uid_t uid) const { return uids.get (uid); }
   gid_t get_gid (gid_t gid) const { return gids.get (gid); }
+  uid_t reverse_get_uid (uid_t uid) const { return uids.reverse_get (uid); }
+  gid_t reverse_get_gid (gid_t gid) const { return gids.reverse_get (gid); }
   void add_uid (uid_t nfs_uid, uid_t cyg_uid) { uids.add (nfs_uid, cyg_uid); }
   void add_gid (gid_t nfs_gid, gid_t cyg_gid) { gids.add (nfs_gid, cyg_gid); }
 };
@@ -492,12 +544,22 @@ struct mini_cygheap
 
 #define NBUCKETS 40
 
+struct threadlist_t
+{
+  struct _cygtls *thread;
+  HANDLE mutex;			/* Used to avoid accessing tls area of
+				   deleted thread.  See comment in
+				   cygheap::remove_tls for a description. */
+};
+
 struct init_cygheap: public mini_cygheap
 {
   _cmalloc_entry *chain;
   unsigned bucket_val[NBUCKETS];
   char *buckets[NBUCKETS];
   WCHAR installation_root[PATH_MAX];
+  WCHAR installation_dir[PATH_MAX];
+  size_t installation_dir_len;
   UNICODE_STRING installation_key;
   WCHAR installation_key_buf[18];
   cygheap_root root;
@@ -517,7 +579,7 @@ struct init_cygheap: public mini_cygheap
   struct sigaction *sigs;
 
   fhandler_termios *ctty;	/* Current tty */
-  struct _cygtls **threadlist;
+  threadlist_t *threadlist;
   uint32_t sthreads;
   pid_t pid;			/* my pid */
   struct {			/* Equivalent to using LIST_HEAD. */
@@ -528,8 +590,10 @@ struct init_cygheap: public mini_cygheap
   void init_installation_root ();
   void __reg1 init_tls_list ();;
   void __reg2 add_tls (_cygtls *);
-  void __reg3 remove_tls (_cygtls *, DWORD);
-  _cygtls __reg3 *find_tls (int, bool&);
+  HANDLE __reg3 remove_tls (_cygtls *);
+  threadlist_t __reg2 *find_tls (_cygtls *);
+  threadlist_t __reg3 *find_tls (int, bool&);
+  void unlock_tls (threadlist_t *t) { if (t) ReleaseMutex (t->mutex); }
 };
 
 
@@ -659,4 +723,5 @@ class cygheap_fdenum : public cygheap_fdmanip
 
 void __stdcall cygheap_fixup_in_child (bool);
 void __stdcall cygheap_init ();
+void setup_cygheap ();
 extern char _cygheap_start[] __attribute__((section(".idata")));

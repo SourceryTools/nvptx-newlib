@@ -1,7 +1,5 @@
 /* fhandler_procnet.cc: fhandler for /proc/net virtual filesystem
 
-   Copyright 2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -18,24 +16,16 @@ details. */
 #undef u_long
 #define u_long __ms_u_long
 #endif
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
+#include <w32api/ws2tcpip.h>
+#include <w32api/iphlpapi.h>
+#include <asm/byteorder.h>
+#include <stdio.h>
 #include "cygerrno.h"
-#include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "fhandler_virtual.h"
 #include "dtable.h"
-#include "cygheap.h"
-#include <asm/byteorder.h>
 
-#define _COMPILING_NEWLIB
-#include <dirent.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-extern "C" int ip_addr_prefix (PIP_ADAPTER_UNICAST_ADDRESS pua,
-			       PIP_ADAPTER_PREFIX pap);
 bool get_adapters_addresses (PIP_ADAPTER_ADDRESSES *pa0, ULONG family);
 
 static off_t format_procnet_ifinet6 (void *, char *&);
@@ -115,7 +105,9 @@ fhandler_procnet::readdir (DIR *dir, dirent *de)
   if (procnet_tab[dir->__d_position].type == virt_file
       && !get_adapters_addresses (NULL, AF_INET6))
     goto out;
-  strcpy (de->d_name, procnet_tab[dir->__d_position++].name);
+  strcpy (de->d_name, procnet_tab[dir->__d_position].name);
+  de->d_type = virt_ftype_to_dtype (procnet_tab[dir->__d_position].type);
+  dir->__d_position++;
   dir->__flags |= dirent_saw_dot | dirent_saw_dot_dot;
   res = 0;
 out:
@@ -262,7 +254,7 @@ format_procnet_ifinet6 (void *, char *&filebuf)
 	filesize += sprintf (filebuf + filesize,
 			     "%02lx %02x %02x %02x %s\n",
 			     (long) pap->Ipv6IfIndex,
-			     ip_addr_prefix (pua, pap->FirstPrefix),
+			     pua->OnLinkPrefixLength,
 			     get_scope (&((struct sockaddr_in6 *)
 					pua->Address.lpSockaddr)->sin6_addr),
 			     dad_to_flags [pua->DadState],

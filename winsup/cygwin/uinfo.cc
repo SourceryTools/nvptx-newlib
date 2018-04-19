@@ -1,8 +1,5 @@
 /* uinfo.cc: user info (uid, gid, etc...)
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -36,27 +33,27 @@ details. */
 #include "cygserver_pwdgrp.h"
 
 /* Initialize the part of cygheap_user that does not depend on files.
-   The information is used in shared.cc for the user shared.
-   Final initialization occurs in uinfo_init */
+   The information is used in shared.cc to create the shared user_info
+   region.  Final initialization occurs in uinfo_init */
 void
 cygheap_user::init ()
 {
   WCHAR user_name[UNLEN + 1];
   DWORD user_name_len = UNLEN + 1;
 
-  /* This code is only run if a Cygwin process gets started by a native
-     Win32 process.  We try to get the username from the environment,
+  /* This method is only called if a Cygwin process gets started by a
+     native Win32 process.  Try to get the username from the environment,
      first USERNAME (Win32), then USER (POSIX).  If that fails (which is
      very unlikely), it only has an impact if we don't have an entry in
      /etc/passwd for this user either.  In that case the username sticks
      to "unknown".  Since this is called early in initialization, and
-     since we don't want pull in a dependency to any other DLL except
+     since we don't want to pull in a dependency to any other DLL except
      ntdll and kernel32 at this early stage, don't call GetUserName,
      GetUserNameEx, NetWkstaUserGetInfo, etc. */
   if (GetEnvironmentVariableW (L"USERNAME", user_name, user_name_len)
       || GetEnvironmentVariableW (L"USER", user_name, user_name_len))
     {
-      char mb_user_name[user_name_len = sys_wcstombs (NULL, 0, user_name)];
+      char mb_user_name[user_name_len = sys_wcstombs (NULL, 0, user_name) + 1];
       sys_wcstombs (mb_user_name, user_name_len, user_name);
       set_name (mb_user_name);
     }
@@ -113,7 +110,39 @@ cygheap_user::init ()
     system_printf("Cannot get dacl, %E");
 }
 
-void
+/* Check if sid is an enabled SID in the token group list of the current
+   effective token.  Note that we only check for ENABLED groups, not for
+   INTEGRITY_ENABLED.  The latter just doesn't make sense in our scenario
+   of using the group as primary group.
+
+   This needs careful checking should we use check_token_membership in other
+   circumstances. */
+bool
+check_token_membership (PSID sid)
+{
+  NTSTATUS status;
+  ULONG size;
+  tmp_pathbuf tp;
+  PTOKEN_GROUPS groups = (PTOKEN_GROUPS) tp.w_get ();
+
+  /* If impersonated, use impersonation token. */
+  HANDLE tok = cygheap->user.issetuid () ? cygheap->user.primary_token ()
+					 : hProcToken;
+  status = NtQueryInformationToken (tok, TokenGroups, groups, 2 * NT_MAX_PATH,
+				    &size);
+  if (!NT_SUCCESS (status))
+    debug_printf ("NtQueryInformationToken (TokenGroups) %y", status);
+  else
+    {
+      for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+	if (RtlEqualSid (sid, groups->Groups[pg].Sid)
+	    && (groups->Groups[pg].Attributes & SE_GROUP_ENABLED))
+	  return true;
+    }
+  return false;
+}
+
+static void
 internal_getlogin (cygheap_user &user)
 {
   struct passwd *pwd;
@@ -148,16 +177,23 @@ internal_getlogin (cygheap_user &user)
 		 disagree with gr_gid from the group file.  Overwrite it. */
 	      if ((grp2 = internal_getgrsid (gsid, &cldap)) && grp2 != grp)
 		myself->gid = pwd->pw_gid = grp2->gr_gid;
-	      /* Set primary group to the group in /etc/passwd. */
+	      /* Set primary group to the group in /etc/passwd, *iff*
+		 the group in /etc/passwd is in the token *and* enabled. */
 	      if (gsid != user.groups.pgsid)
 		{
-		  NTSTATUS status = NtSetInformationToken (hProcToken,
-							   TokenPrimaryGroup,
-							   &gsid, sizeof gsid);
+		  NTSTATUS status = STATUS_INVALID_PARAMETER;
+
+		  if (check_token_membership (gsid))
+		    {
+		      status = NtSetInformationToken (hProcToken,
+						      TokenPrimaryGroup,
+						      &gsid, sizeof gsid);
+		      if (!NT_SUCCESS (status))
+			debug_printf ("NtSetInformationToken "
+				      "(TokenPrimaryGroup), %y", status);
+		    }
 		  if (!NT_SUCCESS (status))
 		    {
-		      debug_printf ("NtSetInformationToken (TokenPrimaryGroup),"
-				    " %y", status);
 		      /* Revert the primary group setting and override the
 			 setting in the passwd entry. */
 		      if (pgrp)
@@ -182,7 +218,7 @@ uinfo_init ()
     return;
 
   if (!child_proc_info)
-    internal_getlogin (cygheap->user); /* Set the cygheap->user. */
+    internal_getlogin (cygheap->user); /* Set cygheap->user. */
   /* Conditions must match those in spawn to allow starting child
      processes with ruid != euid and rgid != egid. */
   else if (cygheap->user.issetuid ()
@@ -217,10 +253,15 @@ getlogin_r (char *name, size_t namesize)
   size_t len = strlen (login) + 1;
   if (len > namesize)
     return ERANGE;
-  myfault efault;
-  if (efault.faulted ())
-    return EFAULT;
-  strncpy (name, login, len);
+  __try
+    {
+      strncpy (name, login, len);
+    }
+  __except (NO_ERROR)
+    {
+      return EFAULT;
+    }
+  __endtry
   return 0;
 }
 
@@ -243,14 +284,14 @@ getuid32 (void)
   return cygheap->user.real_uid;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (getuid32, getuid)
-#else
+#ifdef __i386__
 extern "C" __uid16_t
 getuid (void)
 {
   return cygheap->user.real_uid;
 }
+#else
+EXPORT_ALIAS (getuid32, getuid)
 #endif
 
 extern "C" gid_t
@@ -259,14 +300,14 @@ getgid32 (void)
   return cygheap->user.real_gid;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (getgid32, getgid)
-#else
+#ifdef __i386__
 extern "C" __gid16_t
 getgid (void)
 {
   return cygheap->user.real_gid;
 }
+#else
+EXPORT_ALIAS (getgid32, getgid)
 #endif
 
 extern "C" uid_t
@@ -275,14 +316,14 @@ geteuid32 (void)
   return myself->uid;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (geteuid32, geteuid)
-#else
+#ifdef __i386__
 extern "C" uid_t
 geteuid (void)
 {
   return myself->uid;
 }
+#else
+EXPORT_ALIAS (geteuid32, geteuid)
 #endif
 
 extern "C" gid_t
@@ -291,14 +332,14 @@ getegid32 (void)
   return myself->gid;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (getegid32, getegid)
-#else
+#ifdef __i386__
 extern "C" __gid16_t
 getegid (void)
 {
   return myself->gid;
 }
+#else
+EXPORT_ALIAS (getegid32, getegid)
 #endif
 
 /* Not quite right - cuserid can change, getlogin can't */
@@ -315,9 +356,6 @@ cuserid (char *src)
 const char *
 cygheap_user::ontherange (homebodies what, struct passwd *pw)
 {
-  LPUSER_INFO_3 ui = NULL;
-  WCHAR wuser[UNLEN + 1];
-  NET_API_STATUS ret;
   char homedrive_env_buf[3];
   char *newhomedrive = NULL;
   char *newhomepath = NULL;
@@ -330,11 +368,11 @@ cygheap_user::ontherange (homebodies what, struct passwd *pw)
 
       if ((p = getenv ("HOME")))
 	debug_printf ("HOME is already in the environment %s", p);
-      else
+      if (!p)
 	{
 	  if (pw && pw->pw_dir && *pw->pw_dir)
 	    {
-	      debug_printf ("Set HOME (from /etc/passwd) to %s", pw->pw_dir);
+	      debug_printf ("Set HOME (from account db) to %s", pw->pw_dir);
 	      setenv ("HOME", pw->pw_dir, 1);
 	    }
 	  else
@@ -348,42 +386,56 @@ cygheap_user::ontherange (homebodies what, struct passwd *pw)
 	}
     }
 
-  if (what != CH_HOME && homepath == NULL && newhomepath == NULL)
+  if (what != CH_HOME && homepath == NULL)
     {
+      WCHAR wuser[UNLEN + 1];
+      WCHAR wlogsrv[INTERNET_MAX_HOST_NAME_LENGTH + 3];
+      PUSER_INFO_3 ui = NULL;
       char *homepath_env_buf = tp.c_get ();
-      if (!pw)
-	pw = internal_getpwnam (name ());
+      WCHAR profile[MAX_PATH];
+      WCHAR win_id[UNLEN + 1]; /* Large enough for SID */
+
+      homepath_env_buf[0] = homepath_env_buf[1] = '\0';
+      /* Use Cygwin home as HOMEDRIVE/HOMEPATH in the first place.  This
+	 should cover it completely, in theory.  Still, it might be the
+	 wrong choice in the long run, which might demand to set HOMEDRIVE/
+	 HOMEPATH to the correct values per Windows.  Keep the entire rest
+	 of the code mainly for this reason, so switching is easy. */
+      pw = internal_getpwsid (sid ());
       if (pw && pw->pw_dir && *pw->pw_dir)
 	cygwin_conv_path (CCP_POSIX_TO_WIN_A, pw->pw_dir, homepath_env_buf,
 			  NT_MAX_PATH);
-      else
+      /* First fallback: Windows path per Windows user DB. */
+      else if (logsrv ())
 	{
-	  homepath_env_buf[0] = homepath_env_buf[1] = '\0';
-	  if (logsrv ())
+	  sys_mbstowcs (wlogsrv, sizeof (wlogsrv) / sizeof (*wlogsrv),
+			logsrv ());
+	  sys_mbstowcs (wuser, sizeof wuser / sizeof *wuser, winname ());
+	  if (NetUserGetInfo (wlogsrv, wuser, 3, (LPBYTE *) &ui)
+	      == NERR_Success)
 	    {
-	      WCHAR wlogsrv[INTERNET_MAX_HOST_NAME_LENGTH + 3];
-	      sys_mbstowcs (wlogsrv, sizeof (wlogsrv) / sizeof (*wlogsrv),
-			    logsrv ());
-	     sys_mbstowcs (wuser, sizeof (wuser) / sizeof (*wuser), winname ());
-	      if (!(ret = NetUserGetInfo (wlogsrv, wuser, 3, (LPBYTE *) &ui)))
+	      if (ui->usri3_home_dir_drive && *ui->usri3_home_dir_drive)
 		{
 		  sys_wcstombs (homepath_env_buf, NT_MAX_PATH,
-				ui->usri3_home_dir);
-		  if (!homepath_env_buf[0])
-		    {
-		      sys_wcstombs (homepath_env_buf, NT_MAX_PATH,
-				    ui->usri3_home_dir_drive);
-		      if (homepath_env_buf[0])
-			strcat (homepath_env_buf, "\\");
-		      else
-			cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE,
-					  "/", homepath_env_buf, NT_MAX_PATH);
-		    }
+				ui->usri3_home_dir_drive);
+		  strcat (homepath_env_buf, "\\");
 		}
+	      else if (ui->usri3_home_dir && *ui->usri3_home_dir)
+		sys_wcstombs (homepath_env_buf, NT_MAX_PATH,
+			      ui->usri3_home_dir);
 	    }
 	  if (ui)
 	    NetApiBufferFree (ui);
 	}
+      /* Second fallback: Windows profile dir. */
+      if (!homepath_env_buf[0]
+	  && get_user_profile_directory (get_windows_id (win_id),
+					 profile, MAX_PATH))
+	sys_wcstombs (homepath_env_buf, NT_MAX_PATH, profile);
+      /* Last fallback: Cygwin root dir. */
+      if (!homepath_env_buf[0])
+	cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE,
+			  "/", homepath_env_buf, NT_MAX_PATH);
 
       if (homepath_env_buf[1] != ':')
 	{
@@ -477,13 +529,13 @@ cygheap_user::env_userprofile (const char *name, size_t namelen)
   if (test_uid (puserprof, name, namelen))
     return puserprof;
 
-  /* User hive path is never longer than MAX_PATH. */
-  WCHAR userprofile_env_buf[MAX_PATH];
+  /* User profile path is never longer than MAX_PATH. */
+  WCHAR profile[MAX_PATH];
   WCHAR win_id[UNLEN + 1]; /* Large enough for SID */
 
   cfree_and_set (puserprof, almost_null);
-  if (get_registry_hive_path (get_windows_id (win_id), userprofile_env_buf))
-    sys_wcstombs_alloc (&puserprof, HEAP_STR, userprofile_env_buf);
+  if (get_user_profile_directory (get_windows_id (win_id), profile, MAX_PATH))
+    sys_wcstombs_alloc (&puserprof, HEAP_STR, profile);
 
   return puserprof;
 }
@@ -558,8 +610,9 @@ pwdgrp::add_line (char *eptr)
 				       max_lines * pwdgrp_buf_elem_size);
 	}
       lptr = eptr;
-      if ((this->*parse) ())
-	curr_lines++;
+      if (!(this->*parse) ())
+	return NULL;
+      curr_lines++;
     }
   return eptr;
 }
@@ -577,19 +630,25 @@ cygheap_pwdgrp::init ()
 
      passwd: files db
      group:  files db
-     db_prefix: auto
-     db_cache: yes
-     db_separator: +
+     db_prefix: auto		DISABLED
+     db_separator: +		DISABLED
+     db_home: cygwin desc
+     db_shell: cygwin desc
+     db_gecos: cygwin desc
      db_enum: cache builtin
   */
-  pwd_src = (NSS_FILES | NSS_DB);
-  grp_src = (NSS_FILES | NSS_DB);
-  prefix = NSS_AUTO;
+  pwd_src = (NSS_SRC_FILES | NSS_SRC_DB);
+  grp_src = (NSS_SRC_FILES | NSS_SRC_DB);
+  prefix = NSS_PFX_AUTO;
   separator[0] = L'+';
-  caching = true;
   enums = (ENUM_CACHE | ENUM_BUILTIN);
   enum_tdoms = NULL;
+  caching = true;	/* INTERNAL ONLY */
 }
+
+#define NSS_NCMP(s) (!strncmp(c, (s), sizeof(s)-1))
+#define NSS_CMP(s) (!strncmp(c, (s), sizeof(s)-1) \
+		    && strchr (" \t", c[sizeof(s)-1]))
 
 /* The /etc/nsswitch.conf file is read exactly once by the root process of a
    process tree.  We can't afford methodical changes during the lifetime of a 
@@ -598,38 +657,33 @@ void
 cygheap_pwdgrp::nss_init_line (const char *line)
 {
   const char *c = line + strspn (line, " \t");
+  char *comment = strchr (c, '#');
+  if (comment)
+    *comment = '\0';
   switch (*c)
     {
     case 'p':
     case 'g':
       {
-	int *src = NULL;
-	if (!strncmp (c, "passwd:", 7))
-	  {
-	    src = &pwd_src;
-	    c += 7;
-	  }
-	else if (!strncmp (c, "group:", 6))
-	  {
-	    src = &grp_src;
-	    c += 6;
-	  }
+	uint32_t *src = NULL;
+	if (NSS_NCMP ("passwd:"))
+	  src = &pwd_src;
+	else if (NSS_NCMP ("group:"))
+	  src = &grp_src;
+	c = strchr (c, ':') + 1;
 	if (src)
 	  {
 	    *src = 0;
-	    while (*c)
+	    while (*(c += strspn (c, " \t")))
 	      {
-		c += strspn (c, " \t");
-		if (!*c || *c == '#')
-		  break;
-		if (!strncmp (c, "files", 5) && strchr (" \t", c[5]))
+		if (NSS_CMP ("files"))
 		  {
-		    *src |= NSS_FILES;
+		    *src |= NSS_SRC_FILES;
 		    c += 5;
 		  }
-		else if (!strncmp (c, "db", 2) && strchr (" \t", c[2]))
+		else if (NSS_CMP ("db"))
 		  {
-		    *src |= NSS_DB;
+		    *src |= NSS_SRC_DB;
 		    c += 2;
 		  }
 		else
@@ -639,40 +693,44 @@ cygheap_pwdgrp::nss_init_line (const char *line)
 		  }
 	      }
 	    if (*src == 0)
-	      *src = (NSS_FILES | NSS_DB);
+	      *src = (NSS_SRC_FILES | NSS_SRC_DB);
 	  }
       }
       break;
     case 'd':
-      if (strncmp (c, "db_", 3))
+      if (!NSS_NCMP ("db_"))
 	{
 	  debug_printf ("Invalid nsswitch.conf content: %s", line);
 	  break;
 	}
       c += 3;
-      if (!strncmp (c, "prefix:", 7))
+#if 0 /* Disable setting prefix and separator from nsswitch.conf for now.
+	 Remove if nobody complains too loudly. */
+      if (NSS_NCMP ("prefix:"))
 	{
-	  c += 7;
+	  c = strchr (c, ':') + 1;
 	  c += strspn (c, " \t");
-	  if (!strncmp (c, "auto", 4) && strchr (" \t", c[4]))
+	  if (NSS_CMP ("auto"))
 	    prefix = NSS_AUTO;
-	  else if (!strncmp (c, "primary", 7) && strchr (" \t", c[7]))
+	  else if (NSS_CMP ("primary"))
 	    prefix = NSS_PRIMARY;
-	  else if (!strncmp (c, "always", 6) && strchr (" \t", c[6]))
+	  else if (NSS_CMP ("always"))
 	    prefix = NSS_ALWAYS;
 	  else
 	    debug_printf ("Invalid nsswitch.conf content: %s", line);
 	}
-      else if (!strncmp (c, "separator:", 10))
+      else if (NSS_NCMP ("separator:"))
 	{
-	  c += 10;
+	  c = strchr (c, ':') + 1;
 	  c += strspn (c, " \t");
 	  if ((unsigned char) *c <= 0x7f && *c != ':' && strchr (" \t", c[1]))
 	    separator[0] = (unsigned char) *c;
 	  else
 	    debug_printf ("Invalid nsswitch.conf content: %s", line);
 	}
-      else if (!strncmp (c, "enum:", 5))
+      else
+#endif
+      if (NSS_NCMP ("enum:"))
 	{
 	  tmp_pathbuf tp;
 	  char *tdoms = tp.c_get ();
@@ -680,26 +738,26 @@ cygheap_pwdgrp::nss_init_line (const char *line)
 	  int new_enums = ENUM_NONE;
 
 	  td[0] = '\0';
-	  c += 5;
+	  c = strchr (c, ':') + 1;
 	  c += strspn (c, " \t");
 	  while (!strchr (" \t", *c))
 	    {
 	      const char *e = c + strcspn (c, " \t");
-	      if (!strncmp (c, "none", 4) && strchr (" \t", c[4]))
+	      if (NSS_CMP ("none"))
 		new_enums = ENUM_NONE;
-	      else if (!strncmp (c, "builtin", 7) && strchr (" \t", c[7]))
+	      else if (NSS_CMP ("builtin"))
 		new_enums |= ENUM_BUILTIN;
-	      else if (!strncmp (c, "cache", 5) && strchr (" \t", c[5]))
+	      else if (NSS_CMP ("cache"))
 		new_enums |= ENUM_CACHE;
-	      else if (!strncmp (c, "files", 5) && strchr (" \t", c[5]))
+	      else if (NSS_CMP ("files"))
 		new_enums |= ENUM_FILES;
-	      else if (!strncmp (c, "local", 5) && strchr (" \t", c[5]))
+	      else if (NSS_CMP ("local"))
 		new_enums |= ENUM_LOCAL;
-	      else if (!strncmp (c, "primary", 7) && strchr (" \t", c[7]))
+	      else if (NSS_CMP ("primary"))
 		new_enums |= ENUM_PRIMARY;
-	      else if (!strncmp (c, "alltrusted", 10) && strchr (" \t", c[10]))
+	      else if (NSS_CMP ("alltrusted"))
 		new_enums |= ENUM_TDOMS | ENUM_TDOMS_ALL;
-	      else if (!strncmp (c, "all", 3) && strchr (" \t", c[3]))
+	      else if (NSS_CMP ("all"))
 		new_enums |= ENUM_ALL;
 	      else
 		{
@@ -724,14 +782,517 @@ cygheap_pwdgrp::nss_init_line (const char *line)
 	    }
 	  enums = new_enums;
 	}
+      else
+	{
+	  nss_scheme_t *scheme = NULL;
+	  if (NSS_NCMP ("home:"))
+	    scheme = home_scheme;
+	  else if (NSS_NCMP ("shell:"))
+	    scheme = shell_scheme;
+	  else if (NSS_NCMP ("gecos:"))
+	    scheme = gecos_scheme;
+	  if (scheme)
+	    {
+	      uint16_t idx = 0;
+
+	      scheme[0].method = scheme[1].method = NSS_SCHEME_FALLBACK;
+	      c = strchr (c, ':') + 1;
+	      c += strspn (c, " \t");
+	      while (*c && idx < NSS_SCHEME_MAX)
+		{
+		  if (NSS_CMP ("windows"))
+		    scheme[idx].method = NSS_SCHEME_WINDOWS;
+		  else if (NSS_CMP ("cygwin"))
+		    scheme[idx].method = NSS_SCHEME_CYGWIN;
+		  else if (NSS_CMP ("unix"))
+		    scheme[idx].method = NSS_SCHEME_UNIX;
+		  else if (NSS_CMP ("desc"))
+		    scheme[idx].method = NSS_SCHEME_DESC;
+		  else if (NSS_NCMP ("/"))
+		    {
+		      const char *e = c + strcspn (c, " \t");
+		      scheme[idx].method = NSS_SCHEME_PATH;
+		      sys_mbstowcs_alloc (&scheme[idx].attrib, HEAP_STR,
+					  c, e - c);
+		    }
+		  else if (NSS_NCMP ("@") && isalnum ((unsigned) *++c))
+		    {
+		      const char *e = c + strcspn (c, " \t");
+		      scheme[idx].method = NSS_SCHEME_FREEATTR;
+		      sys_mbstowcs_alloc (&scheme[idx].attrib, HEAP_STR,
+					  c, e - c);
+		    }
+		  else
+		    debug_printf ("Invalid nsswitch.conf content: %s", line);
+		  c += strcspn (c, " \t");
+		  c += strspn (c, " \t");
+		  ++idx;
+		}
+	      /* If nothing has been set, revert to default. */
+	      if (scheme[0].method == NSS_SCHEME_FALLBACK)
+		{
+		  scheme[0].method = NSS_SCHEME_CYGWIN;
+		  scheme[1].method = NSS_SCHEME_DESC;
+		}
+	    }
+	}
       break;
     case '\0':
-    case '#':
       break;
     default:
       debug_printf ("Invalid nsswitch.conf content: %s", line);
       break;
     }
+}
+
+static char *
+fetch_windows_home (cyg_ldap *pldap, PUSER_INFO_3 ui, cygpsid &sid,
+		    PCWSTR dnsdomain)
+{
+  PCWSTR home_from_db = NULL;
+  char *home = NULL;
+
+  if (pldap)
+    {
+      if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	{
+#if 0
+	  /* Disable preferring homeDrive for now.  The drive letter may not
+	     be available when it's needed. */
+	  home_from_db = pldap->get_string_attribute (L"homeDrive");
+	  if (!home_from_db || !*home_from_db)
+#endif
+	  home_from_db = pldap->get_string_attribute (L"homeDirectory");
+	}
+    }
+  else if (ui)
+    {
+#if 0
+      /* Ditto. */
+      if (ui->usri3_home_dir_drive && *ui->usri3_home_dir_drive)
+	home_from_db = ui->usri3_home_dir_drive;
+      else
+#endif
+      if (ui->usri3_home_dir && *ui->usri3_home_dir)
+	home_from_db = ui->usri3_home_dir;
+    }
+  if (home_from_db && *home_from_db)
+    home = (char *) cygwin_create_path (CCP_WIN_W_TO_POSIX, home_from_db);
+  else
+    {
+      /* The db fields are empty, so we have to evaluate the local profile
+	 path, which is the same thing as the default home directory on
+	 Windows.  So what we do here is to try to find out if the user
+	 already has a profile on this machine.
+	 Note that we don't try to generate the profile if it doesn't exist.
+	 Think what would happen if we actually have the permissions to do
+	 so and call getpwent... in a domain environment.  The problem is,
+	 of course, that we can't know the profile path, unless the OS
+	 created it.
+	 The only reason this could occur is if a user account, which never
+	 logged on to the machine before, tries to logon via a Cygwin service
+	 like sshd. */
+      WCHAR profile[MAX_PATH];
+      WCHAR sidstr[128];
+
+      if (get_user_profile_directory (sid.string (sidstr), profile, MAX_PATH))
+      	home = (char *) cygwin_create_path (CCP_WIN_W_TO_POSIX, profile);
+    }
+  return home;
+}
+
+/* Local SAM accounts have only a handful attributes available to home users.
+   Therefore, allow to fetch additional passwd/group attributes from the
+   "Comment" field in XML short style.  For symmetry, this is also allowed
+   from the equivalent "description" AD attribute. */
+static char *
+fetch_from_description (PCWSTR desc, PCWSTR search, size_t len)
+{
+  PWCHAR s, e;
+  char *ret = NULL;
+
+  if ((s = wcsstr (desc, L"<cygwin ")) && (e = wcsstr (s + 8, L"/>")))
+    {
+      s += 8;
+      while (s && s < e)
+	{
+	  while (*s == L' ')
+	    ++s;
+	  if (!wcsncmp (s, search, len)) /* Found what we're searching? */
+	    {
+	      s += len;
+	      if ((e = wcschr (s, L'"')))
+		{
+		  sys_wcstombs_alloc (&ret, HEAP_NOTHEAP, s, e - s);
+		  s = e + 1;
+		}
+	      break;
+	    }
+	  else /* Skip the current foo="bar" string. */
+	    if ((s = wcschr (s, L'"')) && (s = wcschr (s + 1, L'"')))
+	      ++s;
+	}
+    }
+  return ret;
+}
+
+static char *
+fetch_from_path (cyg_ldap *pldap, PUSER_INFO_3 ui, cygpsid &sid, PCWSTR str,
+		 PCWSTR dom, PCWSTR dnsdomain, PCWSTR name, bool full_qualified)
+{
+  tmp_pathbuf tp;
+  PWCHAR wpath = tp.w_get ();
+  PWCHAR w = wpath;
+  PWCHAR we = wpath + NT_MAX_PATH - 1;
+  char *home;
+  char *ret = NULL;
+
+  while (*str && w < we)
+    {
+      if (*str != L'%')
+      	*w++ = *str++;
+      else
+      	{
+	  switch (*++str)
+	    {
+	    case L'u':
+	      if (full_qualified)
+		{
+		  w = wcpncpy (w, dom, we - w);
+		  if (w < we)
+		    *w++ = cygheap->pg.nss_separator ()[0];
+		}
+	      w = wcpncpy (w, name, we - w);
+	      break;
+	    case L'U':
+	      w = wcpncpy (w, name, we - w);
+	      break;
+	    case L'D':
+	      w = wcpncpy (w, dom, we - w);
+	      break;
+	    case L'H':
+	      home = fetch_windows_home (pldap, ui, sid, dnsdomain);
+	      if (home)
+		{
+		  /* Drop one leading slash to accommodate home being an
+		     absolute path.  We don't check for broken usage of
+		     %H here, of course. */
+		  if (w > wpath && w[-1] == L'/')
+		    --w;
+		  w += sys_mbstowcs (w, we - w, home) - 1;
+		  free (home);
+		}
+	      break;
+	    case L'_':
+	      *w++ = L' ';
+	      break;
+	    default:
+	      *w++ = *str;
+	      break;
+	    }
+	  ++str;
+	}
+    }
+  *w = L'\0';
+  sys_wcstombs_alloc (&ret, HEAP_NOTHEAP, wpath);
+  return ret;
+}
+
+char *
+cygheap_pwdgrp::get_home (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom,
+			  PCWSTR dnsdomain, PCWSTR name, bool full_qualified)
+{
+  PWCHAR val;
+  char *home = NULL;
+
+  for (uint16_t idx = 0; !home && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (home_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    home = fetch_windows_home (pldap, NULL, sid, dnsdomain);
+	  break;
+	case NSS_SCHEME_CYGWIN:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"cygwinHome");
+	      if (val && *val)
+		sys_wcstombs_alloc (&home, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_UNIX:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"unixHomeDirectory");
+	      if (val && *val)
+		sys_wcstombs_alloc (&home, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"description");
+	      if (val && *val)
+		home = fetch_from_description (val, L"home=\"", 6);
+	    }
+	  break;
+	case NSS_SCHEME_PATH:
+	  home = fetch_from_path (pldap, NULL, sid, home_scheme[idx].attrib,
+				  dom, dnsdomain, name, full_qualified);
+	  break;
+	case NSS_SCHEME_FREEATTR:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (home_scheme[idx].attrib);
+	      if (val && *val)
+		{
+		  if (isdrive (val) || *val == '\\')
+		    home = (char *)
+			   cygwin_create_path (CCP_WIN_W_TO_POSIX, val);
+		  else
+		    sys_wcstombs_alloc (&home, HEAP_NOTHEAP, val);
+		}
+	    }
+	  break;
+	}
+    }
+  return home;
+}
+
+char *
+cygheap_pwdgrp::get_home (PUSER_INFO_3 ui, cygpsid &sid, PCWSTR dom,
+			  PCWSTR name, bool full_qualified)
+{
+  char *home = NULL;
+
+  for (uint16_t idx = 0; !home && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (home_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	  home = fetch_windows_home (NULL, ui, sid, NULL);
+	  break;
+	case NSS_SCHEME_CYGWIN:
+	case NSS_SCHEME_UNIX:
+	case NSS_SCHEME_FREEATTR:
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (ui)
+	    home = fetch_from_description (ui->usri3_comment, L"home=\"", 6);
+	  break;
+	case NSS_SCHEME_PATH:
+	  home = fetch_from_path (NULL, ui, sid, home_scheme[idx].attrib,
+				  dom, NULL, name, full_qualified);
+	  break;
+	}
+    }
+  return home;
+}
+
+char *
+cygheap_pwdgrp::get_shell (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom,
+			   PCWSTR dnsdomain, PCWSTR name, bool full_qualified)
+{
+  PWCHAR val;
+  char *shell = NULL;
+
+  for (uint16_t idx = 0; !shell && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (shell_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	  break;
+	case NSS_SCHEME_CYGWIN:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"cygwinShell");
+	      if (val && *val)
+		sys_wcstombs_alloc (&shell, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_UNIX:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"loginShell");
+	      if (val && *val)
+		sys_wcstombs_alloc (&shell, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"description");
+	      if (val && *val)
+		shell = fetch_from_description (val, L"shell=\"", 7);
+	    }
+	  break;
+	case NSS_SCHEME_PATH:
+	  shell = fetch_from_path (pldap, NULL, sid, shell_scheme[idx].attrib,
+	  			   dom, dnsdomain, name, full_qualified);
+	  break;
+	case NSS_SCHEME_FREEATTR:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (shell_scheme[idx].attrib);
+	      if (val && *val)
+		{
+		  if (isdrive (val) || *val == '\\')
+		    shell = (char *)
+			    cygwin_create_path (CCP_WIN_W_TO_POSIX, val);
+		  else
+		    sys_wcstombs_alloc (&shell, HEAP_NOTHEAP, val);
+		}
+	    }
+	  break;
+	}
+    }
+  return shell;
+}
+
+char *
+cygheap_pwdgrp::get_shell (PUSER_INFO_3 ui, cygpsid &sid, PCWSTR dom,
+			   PCWSTR name, bool full_qualified)
+{
+  char *shell = NULL;
+
+  for (uint16_t idx = 0; !shell && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (shell_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	case NSS_SCHEME_CYGWIN:
+	case NSS_SCHEME_UNIX:
+	case NSS_SCHEME_FREEATTR:
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (ui)
+	    shell = fetch_from_description (ui->usri3_comment, L"shell=\"", 7);
+	  break;
+	case NSS_SCHEME_PATH:
+	  shell = fetch_from_path (NULL, ui, sid, shell_scheme[idx].attrib,
+				   dom, NULL, name, full_qualified);
+	  break;
+	}
+    }
+  return shell;
+}
+
+/* Helper function to replace colons with semicolons in pw_gecos field. */
+static inline void
+colon_to_semicolon (char *str)
+{
+  char *cp = str;
+  while ((cp = strchr (cp, L':')) != NULL)
+    *cp++ = L';';
+}
+
+char *
+cygheap_pwdgrp::get_gecos (cyg_ldap *pldap, cygpsid &sid, PCWSTR dom,
+			   PCWSTR dnsdomain, PCWSTR name, bool full_qualified)
+{
+  PWCHAR val;
+  char *gecos = NULL;
+
+  for (uint16_t idx = 0; !gecos && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (gecos_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"displayName");
+	      if (val && *val)
+		sys_wcstombs_alloc (&gecos, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_CYGWIN:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"cygwinGecos");
+	      if (val && *val)
+		sys_wcstombs_alloc (&gecos, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_UNIX:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"gecos");
+	      if (val && *val)
+		sys_wcstombs_alloc (&gecos, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (L"description");
+	      if (val && *val)
+		gecos = fetch_from_description (val, L"gecos=\"", 7);
+	    }
+	  break;
+	case NSS_SCHEME_PATH:
+	  gecos = fetch_from_path (pldap, NULL, sid,
+				   gecos_scheme[idx].attrib + 1,
+				   dom, dnsdomain, name, full_qualified);
+	  break;
+	case NSS_SCHEME_FREEATTR:
+	  if (pldap->fetch_ad_account (sid, false, dnsdomain))
+	    {
+	      val = pldap->get_string_attribute (gecos_scheme[idx].attrib);
+	      if (val && *val)
+		sys_wcstombs_alloc (&gecos, HEAP_NOTHEAP, val);
+	    }
+	  break;
+	}
+    }
+  if (gecos)
+    colon_to_semicolon (gecos);
+  return gecos;
+}
+
+char *
+cygheap_pwdgrp::get_gecos (PUSER_INFO_3 ui, cygpsid &sid, PCWSTR dom,
+			   PCWSTR name, bool full_qualified)
+{
+  char *gecos = NULL;
+
+  for (uint16_t idx = 0; !gecos && idx < NSS_SCHEME_MAX; ++idx)
+    {
+      switch (gecos_scheme[idx].method)
+	{
+	case NSS_SCHEME_FALLBACK:
+	  return NULL;
+	case NSS_SCHEME_WINDOWS:
+	  if (ui && ui->usri3_full_name && *ui->usri3_full_name)
+	    sys_wcstombs_alloc (&gecos, HEAP_NOTHEAP, ui->usri3_full_name);
+	  break;
+	case NSS_SCHEME_CYGWIN:
+	case NSS_SCHEME_UNIX:
+	case NSS_SCHEME_FREEATTR:
+	  break;
+	case NSS_SCHEME_DESC:
+	  if (ui)
+	    gecos = fetch_from_description (ui->usri3_comment, L"gecos=\"", 7);
+	  break;
+	case NSS_SCHEME_PATH:
+	  gecos = fetch_from_path (NULL, ui, sid, gecos_scheme[idx].attrib + 1,
+				   dom, NULL, name, full_qualified);
+	  break;
+	}
+    }
+  if (gecos)
+    colon_to_semicolon (gecos);
+  return gecos;
 }
 
 void
@@ -744,10 +1305,11 @@ cygheap_pwdgrp::_nss_init ()
   char *buf = tp.c_get ();
 
   PCWSTR rel_path = L"\\etc\\nsswitch.conf";
-  path.Buffer = (PWCHAR) alloca ((wcslen (cygheap->installation_root)
-				  + wcslen (rel_path) + 1) * sizeof (WCHAR));
+  path.Length = (wcslen (cygheap->installation_root) + wcslen (rel_path))
+		* sizeof (WCHAR);
+  path.MaximumLength = path.Length + sizeof (WCHAR);
+  path.Buffer = (PWCHAR) alloca (path.MaximumLength);
   wcpcpy (wcpcpy (path.Buffer, cygheap->installation_root), rel_path);
-  RtlInitUnicodeString (&path, path.Buffer);
   InitializeObjectAttributes (&attr, &path, OBJ_CASE_INSENSITIVE,
 			      NULL, NULL);
   if (rl.init (&attr, buf, NT_MAX_PATH))
@@ -815,8 +1377,6 @@ cygheap_domain_info::init ()
   lsa_close_policy (lsa);
   if (cygheap->dom.member_machine ())
     {
-      /* For a domain member machine fetch all trusted domain info. */
-      lowest_tdo_posix_offset = UNIX_POSIX_OFFSET - 1;
       ret = DsEnumerateDomainTrustsW (NULL, DS_DOMAIN_DIRECT_INBOUND
 					    | DS_DOMAIN_DIRECT_OUTBOUND
 					    | DS_DOMAIN_IN_FOREST,
@@ -878,7 +1438,7 @@ cygheap_domain_info::init ()
      The latter is useful to get an RFC 2307 mapping for Samba UNIX accounts,
      even if no NFS name mapping is configured on the machine.  Fortunately,
      the posixAccount and posixGroup schemas are already available in the
-     Active Directory default setup since Windows Server 2003 R2. */
+     Active Directory default setup. */
   reg_key reg (HKEY_LOCAL_MACHINE, KEY_READ | KEY_WOW64_64KEY,
 	       L"SOFTWARE", L"Microsoft", L"ServicesForNFS", NULL);
   if (!reg.error ())
@@ -899,6 +1459,29 @@ cygheap_domain_info::init ()
   return true;
 }
 
+PDS_DOMAIN_TRUSTSW
+cygheap_domain_info::add_domain (PCWSTR domain, PSID sid)
+{
+  PDS_DOMAIN_TRUSTSW new_tdom;
+  cygsid tsid (sid);
+
+  new_tdom = (PDS_DOMAIN_TRUSTSW) crealloc (tdom, (tdom_count + 1)
+						  * sizeof (DS_DOMAIN_TRUSTSW));
+  if (!new_tdom)
+    return NULL;
+
+  tdom = new_tdom;
+  new_tdom = &tdom[tdom_count];
+  new_tdom->DnsDomainName = new_tdom->NetbiosDomainName = cwcsdup (domain);
+  --*RtlSubAuthorityCountSid (tsid);
+  ULONG len = RtlLengthSid (tsid);
+  new_tdom->DomainSid = cmalloc_abort(HEAP_BUF, len);
+  RtlCopySid (len, new_tdom->DomainSid, tsid);
+  new_tdom->PosixOffset = 0;
+  ++tdom_count;
+  return new_tdom;
+}
+
 /* Per session, so it changes potentially when switching the user context. */
 static cygsid logon_sid ("");
 
@@ -910,12 +1493,12 @@ get_logon_sid ()
       NTSTATUS status;
       ULONG size;
       tmp_pathbuf tp;
-      PTOKEN_GROUPS groups = (PTOKEN_GROUPS) tp.c_get ();
+      PTOKEN_GROUPS groups = (PTOKEN_GROUPS) tp.w_get ();
 
       status = NtQueryInformationToken (hProcToken, TokenGroups, groups,
-					NT_MAX_PATH, &size);
+					2 * NT_MAX_PATH, &size);
       if (!NT_SUCCESS (status))
-	debug_printf ("NtQueryInformationToken() %y", status);
+	debug_printf ("NtQueryInformationToken (TokenGroups) %y", status);
       else
 	{
 	  for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
@@ -928,21 +1511,51 @@ get_logon_sid ()
     }
 }
 
+/* Fetch special AzureAD group, which is part of the token group list but
+   *not* recognized by LookupAccountSid (ERROR_NONE_MAPPED). */
+static cygsid azure_grp_sid ("");
+
+static void
+get_azure_grp_sid ()
+{
+  if (PSID (azure_grp_sid) == NO_SID)
+    {
+      NTSTATUS status;
+      ULONG size;
+      tmp_pathbuf tp;
+      PTOKEN_GROUPS groups = (PTOKEN_GROUPS) tp.w_get ();
+
+      status = NtQueryInformationToken (hProcToken, TokenGroups, groups,
+					2 * NT_MAX_PATH, &size);
+      if (!NT_SUCCESS (status))
+	debug_printf ("NtQueryInformationToken (TokenGroups) %y", status);
+      else
+	{
+	  for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+	    if (sid_id_auth (groups->Groups[pg].Sid) == 12)
+	      {
+		azure_grp_sid = groups->Groups[pg].Sid;
+		break;
+	      }
+	}
+    }
+}
+
 void *
 pwdgrp::add_account_post_fetch (char *line, bool lock)
 {
+  void *ret = NULL;
+
   if (line)
     { 
-      void *ret;
       if (lock)
 	pglock.init ("pglock")->acquire ();
-      add_line (line);
-      ret = ((char *) pwdgrp_buf) + (curr_lines - 1) * pwdgrp_buf_elem_size;
+      if (add_line (line))
+	ret = ((char *) pwdgrp_buf) + (curr_lines - 1) * pwdgrp_buf_elem_size;
       if (lock)
 	pglock.release ();
-      return ret;
     }
-  return NULL;
+  return ret;
 }
 
 void *
@@ -1017,6 +1630,19 @@ pwdgrp::add_account_from_windows (uint32_t id, cyg_ldap *pldap)
   return add_account_post_fetch (line, true);
 }
 
+/* Called from internal_getgrfull, in turn called from internal_getgroups. */
+struct group *
+pwdgrp::add_group_from_windows (fetch_acc_t &full_acc, cyg_ldap *pldap)
+{
+  fetch_user_arg_t arg;
+  arg.type = FULL_acc_arg;
+  arg.full_acc = &full_acc;
+  char *line = fetch_account_from_windows (arg, pldap);
+  if (!line)
+    return NULL;
+  return (struct group *) add_account_post_fetch (line, true);
+}
+
 /* Check if file exists and if it has been written to since last checked.
    If file has been changed, invalidate the current cache.
    
@@ -1039,12 +1665,11 @@ pwdgrp::check_file ()
   if (!path.Buffer)
     {
       PCWSTR rel_path = is_group () ? L"\\etc\\group" : L"\\etc\\passwd";
-      path.Buffer = (PWCHAR) cmalloc_abort (HEAP_BUF,
-					    (wcslen (cygheap->installation_root)
-					     + wcslen (rel_path) + 1)
-					    * sizeof (WCHAR));
+      path.Length = (wcslen (cygheap->installation_root) + wcslen (rel_path))
+		    * sizeof (WCHAR);
+      path.MaximumLength = path.Length + sizeof (WCHAR);
+      path.Buffer = (PWCHAR) cmalloc_abort (HEAP_BUF, path.MaximumLength);
       wcpcpy (wcpcpy (path.Buffer, cygheap->installation_root), rel_path);
-      RtlInitUnicodeString (&path, path.Buffer);
       InitializeObjectAttributes (&attr, &path, OBJ_CASE_INSENSITIVE,
 				  NULL, NULL);
     }
@@ -1100,6 +1725,8 @@ pwdgrp::fetch_account_from_line (fetch_user_arg_t &arg, const char *line)
       if (strtoul (p + 1, &e, 10) != arg.id || !e || *e != ':')
 	return NULL;
       break;
+    default:
+      return NULL;
     }
   return cstrdup (line);
 }
@@ -1126,6 +1753,8 @@ pwdgrp::fetch_account_from_file (fetch_user_arg_t &arg)
       break;
     case ID_arg:
       break;
+    default:
+      return NULL;
     }
   if (rl.init (&attr, buf, NT_MAX_PATH))
     while ((buf = rl.gets ()))
@@ -1137,39 +1766,31 @@ pwdgrp::fetch_account_from_file (fetch_user_arg_t &arg)
 static ULONG
 fetch_posix_offset (PDS_DOMAIN_TRUSTSW td, cyg_ldap *cldap)
 {
-  uint32_t id_val;
+  uint32_t id_val = UINT32_MAX;
 
   if (!td->PosixOffset && !(td->Flags & DS_DOMAIN_PRIMARY) && td->DomainSid)
     {
-      if (cldap->open (NULL) != NO_ERROR)
+      if (cldap->open (NULL) == NO_ERROR)
+	id_val = cldap->fetch_posix_offset_for_domain (td->DnsDomainName);
+      if (id_val < PRIMARY_POSIX_OFFSET)
+	{
+	  /* If the offset is less than the primay domain offset, we're bound
+	     to suffer collisions with system and local accounts.  Move offset
+	     to a fixed replacement fake offset.  This may result in collisions
+	     between other domains all of which were moved to this replacement
+	     offset, but we can't fix all problems caused by careless admins. */
+	  id_val = UNUSABLE_POSIX_OFFSET;
+	}
+      else if (id_val == UINT32_MAX)
 	{
 	  /* We're probably running under a local account, so we're not allowed
-	     to fetch any information from AD beyond the most obvious.  Never
-	     mind, just fake a reasonable posix offset. */
-	  id_val = cygheap->dom.lowest_tdo_posix_offset
-		   - 0x01000000;
+	     to fetch any information from AD beyond the most obvious.  Fake a
+	     reasonable posix offset as above and hope for the best. */
+	  id_val = NOACCESS_POSIX_OFFSET;
 	}
-      else
-	id_val = cldap->fetch_posix_offset_for_domain (td->DnsDomainName);
-      if (id_val)
-	{
-	  td->PosixOffset = id_val;
-	  if (id_val < cygheap->dom.lowest_tdo_posix_offset)
-	    cygheap->dom.lowest_tdo_posix_offset = id_val;
-
-	}
+      td->PosixOffset = id_val;
     }
   return td->PosixOffset;
-}
-
-/* Helper function to replace colons with commas in pw_gecos field. */
-static PWCHAR
-colon_to_semicolon (PWCHAR str)
-{
-  PWCHAR cp = str;
-  while ((cp = wcschr (cp, L':')) != NULL)
-    *cp++ = L';';
-  return str;
 }
 
 /* CV 2014-05-08: USER_INFO_24 is not yet defined in Mingw64, but will be in
@@ -1199,19 +1820,16 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
   SID_NAME_USE acc_type;
   BOOL ret = false;
   /* Cygwin user name style. */
-  enum name_style_t {
-    name_only,
-    plus_prepended,
-    fully_qualified
-  } name_style = name_only;
+  bool fully_qualified_name = false;
   /* Computed stuff. */
   uid_t uid = ILLEGAL_UID;
   gid_t gid = ILLEGAL_GID;
   bool is_domain_account = true;
   PCWSTR domain = NULL;
-  PWCHAR shell = NULL;
-  PWCHAR home = NULL;
-  PWCHAR gecos = NULL;
+  bool is_current_user = false;
+  char *shell = NULL;
+  char *home = NULL;
+  char *gecos = NULL;
   /* Temporary stuff. */
   PWCHAR p;
   WCHAR sidstr[128];
@@ -1226,6 +1844,17 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 
   switch (arg.type)
     {
+    case FULL_acc_arg:
+      {
+	sid = arg.full_acc->sid;
+	*wcpncpy (name, arg.full_acc->name->Buffer,
+		  arg.full_acc->name->Length / sizeof (WCHAR)) = L'\0';
+	*wcpncpy (dom, arg.full_acc->dom->Buffer,
+		  arg.full_acc->dom->Length / sizeof (WCHAR)) = L'\0';
+	acc_type = arg.full_acc->acc_type;
+      	ret = acc_type != SidTypeUnknown;
+      }
+      break;
     case SID_arg:
       sid = *arg.sid;
       ret = LookupAccountSidW (NULL, sid, name, &nlen, dom, &dlen, &acc_type);
@@ -1241,8 +1870,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	     DC for some weird reason.  Use LDAP instead. */
 	  PWCHAR val;
 
-	  if (cldap->open (NULL) == NO_ERROR
-	      && cldap->fetch_ad_account (sid, is_group ())
+	  if (cldap->fetch_ad_account (sid, true)
 	      && (val = cldap->get_group_name ()))
 	    {
 	      wcpcpy (name, val);
@@ -1255,52 +1883,70 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	debug_printf ("LookupAccountSid(%W), %E", sid.string (sidstr));
       break;
     case NAME_arg:
-      /* Skip leading domain separator.  This denotes an alias or well-known
-         group, which will be found first by LookupAccountNameW anyway.
-	 Otherwise, if the name has no leading domain name, it's either a
-	 standalone machine, or the username must be from the primary domain.
-	 In the latter case, prepend the primary domain name so as not to
-	 collide with an account from the account domain with the same name. */
-      name_style_t nstyle;
+      bool fq_name;
 
-      nstyle = name_only;
-      p = name;
-      if (*arg.name == cygheap->pg.nss_separator ()[0])
-	nstyle = plus_prepended;
-      else if (strchr (arg.name, cygheap->pg.nss_separator ()[0]))
-	nstyle = fully_qualified;
-      else if (cygheap->dom.member_machine ())
-	p = wcpcpy (wcpcpy (p, cygheap->dom.primary_flat_name ()),
-		    cygheap->pg.nss_separator ());
-      /* Now fill up with name to search. */
-      sys_mbstowcs (p, UNLEN + 1,
-		    arg.name + (nstyle == plus_prepended ? 1 : 0));
+      fq_name = false;
+      /* Copy over to wchar for search. */
+      sys_mbstowcs (name, UNLEN + 1, arg.name);
+      /* If the incoming name has a backslash or at sign, and neither backslash
+	 nor at are the domain separator chars, the name is invalid. */
+      if ((p = wcspbrk (name, L"\\@")) && *p != cygheap->pg.nss_separator ()[0])
+	{
+	  debug_printf ("Invalid account name <%s> (backslash/at)", arg.name);
+	  return NULL;
+	}
       /* Replace domain separator char with backslash and make sure p is NULL
-	 or points to the backslash, so... */
+	 or points to the backslash. */
       if ((p = wcschr (name, cygheap->pg.nss_separator ()[0])))
-	*p = L'\\';
+	{
+	  fq_name = true;
+	  *p = L'\\';
+	}
       sid = csid;
       ret = LookupAccountNameW (NULL, name, sid, &slen, dom, &dlen, &acc_type);
+      /* If this is a name-only S-1-5-21 account *and* it's a machine account
+	 on a domain member machine, then we found the wrong one.  Another
+	 weird, but perfectly valid case is, if the group name is identical
+	 to the domain name.  Try again with domain name prepended. */
+      if (ret
+	  && !fq_name
+	  && sid_id_auth (sid) == 5 /* SECURITY_NT_AUTHORITY */
+	  && sid_sub_auth (sid, 0) == SECURITY_NT_NON_UNIQUE
+	  && cygheap->dom.member_machine ()
+	  && (wcscasecmp (dom, cygheap->dom.account_flat_name ()) == 0
+	      || acc_type == SidTypeDomain))
+	{
+	  p = wcpcpy (name, cygheap->dom.primary_flat_name ());
+	  *p = L'\\';
+	  sys_mbstowcs (p + 1, UNLEN + 1, arg.name);
+	  slen = SECURITY_MAX_SID_SIZE;
+	  dlen = DNLEN + 1;
+	  sid = csid;
+	  ret = LookupAccountNameW (NULL, name, sid, &slen, dom, &dlen,
+				    &acc_type);
+	}
       if (!ret)
 	{
+	  if (!strcmp (arg.name, "no+body"))
+	    {
+	      /* Special case "nobody" for reproducible construction of a
+		 nobody SID for WinFsp and similar services.  We use the
+		 value 65534 which is -2 with 16 bit uid/gids. */
+	      csid.create (0, 1, 0xfffe);
+	      break;
+	    }
 	  debug_printf ("LookupAccountNameW (%W), %E", name);
 	  return NULL;
 	}
-      /* ... we can skip the backslash in the rest of this function. */
+      /* We can skip the backslash in the rest of this function. */
       if (p)
 	name = p + 1;
       /* Last but not least, some validity checks on the name style. */
-      switch (nstyle)
+      if (!fq_name)
 	{
-	case name_only:
-	  /* name_only account must start with S-1-5-21 */
-	  if (sid_id_auth (sid) != 5 /* SECURITY_NT_AUTHORITY */
-	      || sid_sub_auth (sid, 0) != SECURITY_NT_NON_UNIQUE)
-	    {
-	      debug_printf ("Invalid account name <%s> (name only/"
-			    "not NON_UNIQUE)", arg.name);
-	      return NULL;
-	    }
+	  /* AzureAD user must be prepended by "domain" name. */
+	  if (sid_id_auth (sid) == 12)
+	    return NULL;
 	  /* name_only only if db_prefix is auto. */
 	  if (!cygheap->pg.nss_prefix_auto ())
 	    {
@@ -1308,34 +1954,47 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 			    "db_prefix not auto)", arg.name);
 	      return NULL;
 	    }
-	  break;
-	case plus_prepended:
-	  /* plus_prepended account must not start with S-1-5-21. */
+	  /* name_only account is either builtin or primary domain, or
+	     account domain on non-domain machines. */
 	  if (sid_id_auth (sid) == 5 /* SECURITY_NT_AUTHORITY */
 	      && sid_sub_auth (sid, 0) == SECURITY_NT_NON_UNIQUE)
 	    {
-	      debug_printf ("Invalid account name <%s> (plus prependend/"
-			    "NON_UNIQUE)", arg.name);
-	      return NULL;
+	      if (cygheap->dom.member_machine ())
+		{
+		  if (wcscasecmp (dom, cygheap->dom.primary_flat_name ()) != 0)
+		    {
+		      debug_printf ("Invalid account name <%s> (name only/"
+				    "non primary on domain machine)", arg.name);
+		      return NULL;
+		    }
+		}
+	      else if (wcscasecmp (dom, cygheap->dom.account_flat_name ()) != 0)
+		{
+		  debug_printf ("Invalid account name <%s> (name only/"
+				"non machine on non-domain machine)", arg.name);
+		  return NULL;
+		}
 	    }
-	  /* plus_prepended only if db_prefix is not always. */
-	  if (cygheap->pg.nss_prefix_always ())
-	    {
-	      debug_printf ("Invalid account name <%s> (plus prependend/"
-			    "db_prefix not always)", arg.name);
-	      return NULL;
-	    }
-	  break;
-	case fully_qualified:
+	}
+      else
+	{
 	  /* All is well if db_prefix is always. */
 	  if (cygheap->pg.nss_prefix_always ())
 	    break;
-	  /* Otherwise, no fully_qualified for builtin accounts. */
+	  /* AzureAD accounts should be fully qualifed either. */
+	  if (sid_id_auth (sid) == 12)
+	    break;
+	  /* Otherwise, no fully_qualified for builtin accounts, except for
+	     NT SERVICE, for which we require the prefix.  Note that there's
+	     no equivalent test in the `if (!fq_name)' branch above, because
+	     LookupAccountName never returns NT SERVICE accounts if they are
+	     not prependend with the domain anyway. */
 	  if (sid_id_auth (sid) != 5 /* SECURITY_NT_AUTHORITY */
-	      || sid_sub_auth (sid, 0) != SECURITY_NT_NON_UNIQUE)
+	      || (sid_sub_auth (sid, 0) != SECURITY_NT_NON_UNIQUE
+		  && sid_sub_auth (sid, 0) != SECURITY_SERVICE_ID_BASE_RID))
 	    {
 	      debug_printf ("Invalid account name <%s> (fully qualified/"
-			    "not NON_UNIQUE)", arg.name);
+			    "not NON_UNIQUE or NT_SERVICE)", arg.name);
 	      return NULL;
 	    }
 	  /* All is well if db_prefix is primary. */
@@ -1358,7 +2017,6 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 			    "local account)", arg.name);
 	      return NULL;
 	    }
-	  break;
 	}
       break;
     case ID_arg:
@@ -1369,11 +2027,11 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	 We create uid/gid values compatible with the old values generated
 	 by mkpasswd/mkgroup. */
       if (arg.id < 0x200)
-	__small_swprintf (sidstr, L"S-1-5-%u", arg.id & 0x1ff);
+	csid.create (5, 1, arg.id & 0x1ff);
+      else if (arg.id <= 0x3e7)
+	csid.create (5, 2, 32, arg.id & 0x3ff);
       else if (arg.id == 0x3e8) /* Special case "Other Organization" */
-	wcpcpy (sidstr, L"S-1-5-1000");
-      else if (arg.id <= 0x7ff)
-	__small_swprintf (sidstr, L"S-1-5-32-%u", arg.id & 0x7ff);
+	csid.create (5, 1, 1000);
       else
 #endif
       if (arg.id == 0xffe)
@@ -1393,6 +2051,28 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	  sid = logon_sid;
 	  break;
 	}
+      else if (arg.id == 0x1000)
+        {
+	  /* AzureAD S-1-12-1-W-X-Y-Z user */
+	  csid = cygheap->user.saved_sid ();
+	}
+      else if (arg.id == 0x1001)
+        {
+	  /* Special AzureAD group SID */
+	  get_azure_grp_sid ();
+	  /* LookupAccountSidW will fail. */
+	  sid = csid = azure_grp_sid;
+	  break;
+	}
+      else if (arg.id == 0xfffe)
+	{
+	  /* Special case "nobody" for reproducible construction of a
+	     nobody SID for WinFsp and similar services.  We use the
+	     value 65534 which is -2 with 16 bit uid/gids. */
+	  csid.create (0, 1, 0xfffe);
+	  sid = csid;
+	  break;
+	}
       else if (arg.id < 0x10000)
 	{
 	  /* Nothing. */
@@ -1403,31 +2083,34 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	{
 	  /* Well-Known Group */
 	  arg.id -= 0x10000;
-	  __small_swprintf (sidstr, L"S-1-%u-%u", arg.id >> 8, arg.id & 0xff);
+	  /* SECURITY_APP_PACKAGE_AUTHORITY */
+	  if (arg.id >= 0xf20 && arg.id <= 0xf3f)
+	    csid.create (15, 2, (arg.id >> 4) & 0xf, arg.id & 0xf);
+	  else
+	    csid.create (arg.id >> 8, 1, arg.id & 0xff);
 	}
       else if (arg.id >= 0x30000 && arg.id < 0x40000)
 	{
 	  /* Account domain user or group. */
-	  PWCHAR s = cygheap->dom.account_sid ().pstring (sidstr);
-	  __small_swprintf (s, L"-%u", arg.id & 0xffff);
+	  csid = cygheap->dom.account_sid ();
+	  csid.append (arg.id & 0xffff);
 	}
       else if (arg.id < 0x60000)
 	{
 	  /* Builtin Alias */
-	  __small_swprintf (sidstr, L"S-1-5-%u-%u",
-			    arg.id >> 12, arg.id & 0xffff);
+	  csid.create (5, 2, arg.id >> 12, arg.id & 0xffff);
 	}
       else if (arg.id < 0x70000)
 	{
 	  /* Mandatory Label. */
-	  __small_swprintf (sidstr, L"S-1-16-%u", arg.id & 0xffff);
+	  csid.create (16, 1, arg.id & 0xffff);
 	}
       else if (arg.id < 0x80000)
 	{
 	  /* Identity assertion SIDs. */
-	  __small_swprintf (sidstr, L"S-1-18-%u", arg.id & 0xffff);
+	  csid.create (18, 1, arg.id & 0xffff);
 	}
-      else if (arg.id < 0x100000)
+      else if (arg.id < PRIMARY_POSIX_OFFSET)
 	{
 	  /* Nothing. */
 	  debug_printf ("Invalid POSIX id %u", arg.id);
@@ -1436,16 +2119,15 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
       else if (arg.id == ILLEGAL_UID)
 	{
 	  /* Just some fake. */
-	  sid = csid = "S-1-99-0";
+	  sid = csid.create (99, 1, 0);
 	  break;
 	}
       else if (arg.id >= UNIX_POSIX_OFFSET)
 	{
 	  /* UNIX (unknown NFS or Samba) user account. */
-	  __small_swprintf (sidstr, L"S-1-22-%u-%u",
-			    is_group () ? 2 : 1,  arg.id & UNIX_POSIX_MASK);
+	  csid.create (22, 2, is_group () ? 2 : 1,  arg.id & UNIX_POSIX_MASK);
 	  /* LookupAccountSidW will fail. */
-	  sid = csid = sidstr;
+	  sid = csid;
 	  break;
 	}
       else
@@ -1461,23 +2143,22 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	    }
 	  if (this_td)
 	    {
-	      cygpsid tsid (this_td->DomainSid);
-	      PWCHAR s = tsid.pstring (sidstr);
-	      __small_swprintf (s, L"-%u", arg.id - posix_offset);
+	      csid = this_td->DomainSid;
+	      csid.append (arg.id - posix_offset);
 	    }
 	  else
 	    {
 	      /* Primary domain */
-	      PWCHAR s = cygheap->dom.primary_sid ().pstring (sidstr);
-	      __small_swprintf (s, L"-%u", arg.id - 0x100000);
+	      csid = cygheap->dom.primary_sid ();
+	      csid.append (arg.id - PRIMARY_POSIX_OFFSET);
 	    }
 	  posix_offset = 0;
 	}
-      sid = csid = sidstr;
+      sid = csid;
       ret = LookupAccountSidW (NULL, sid, name, &nlen, dom, &dlen, &acc_type);
       if (!ret)
 	{
-	  debug_printf ("LookupAccountSidW (%W), %E", sidstr);
+	  debug_printf ("LookupAccountSidW (%W), %E", sid.string (sidstr));
 	  return NULL;
 	}
       break;
@@ -1496,6 +2177,34 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
       switch (acc_type)
       	{
 	case SidTypeUser:
+	  if (is_group ())
+	    {
+	      /* Don't allow users as group.  While this is technically
+		 possible, it doesn't make sense in a POSIX scenario.
+	 
+		 Microsoft Accounts as well as AzureAD accounts have the
+		 primary group SID in their user token set to their own
+		 user SID.
+
+		 Those we let pass, but no others. */
+	      bool its_ok = false;
+	      if (sid_id_auth (sid) == 12)
+		its_ok = true;
+	      else if (wincap.has_microsoft_accounts ())
+		{
+		  struct cyg_USER_INFO_24 *ui24;
+		  if (NetUserGetInfo (NULL, name, 24, (PBYTE *) &ui24)
+		      == NERR_Success)
+		    {
+		      if (ui24->usri24_internet_identity)
+			its_ok = true;
+		      NetApiBufferFree (ui24);
+		    }
+		}
+	      if (!its_ok)
+		return NULL;
+	    }
+	  /*FALLTHRU*/
 	case SidTypeGroup:
 	case SidTypeAlias:
 	  /* Predefined alias? */
@@ -1509,8 +2218,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 #else
 	      posix_offset = 0;
 #endif
-	      name_style = (cygheap->pg.nss_prefix_always ()) ? fully_qualified
-							      : plus_prepended;
+	      fully_qualified_name = cygheap->pg.nss_prefix_always ();
 	      is_domain_account = false;
 	    }
 	  /* Account domain account? */
@@ -1519,7 +2227,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	      posix_offset = 0x30000;
 	      if (cygheap->dom.member_machine ()
 		  || !cygheap->pg.nss_prefix_auto ())
-		name_style = fully_qualified;
+		fully_qualified_name = true;
 	      is_domain_account = false;
 	    }
 	  /* Domain member machine? */
@@ -1528,42 +2236,63 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	      /* Primary domain account? */
 	      if (!wcscasecmp (dom, cygheap->dom.primary_flat_name ()))
 		{
-		  posix_offset = 0x100000;
+		  posix_offset = PRIMARY_POSIX_OFFSET;
 		  /* In theory domain should have been set to
-		     cygheap->dom.primary_dns_name (), but it turns out
-		     that not setting the domain here has advantages.
-		     We open the ldap connection to NULL (== some domain
-		     control of our primary domain) anyway.  So the domain
-		     is only used 
-		     later on.  So, don't set domain here to non-NULL, unless
-		     you're sure you have also changed subsequent assumptions
-		     that domain is NULL if it's a primary domain account. */
+		     cygheap->dom.primary_dns_name (), but it turns out that
+		     not setting the domain here has advantages.  We open the
+		     ldap connection to NULL (== some DC of our primary domain)
+		     anyway.  So the domain is only used later on.  So, don't
+		     set domain here to non-NULL, unless you're sure you have
+		     also changed subsequent assumptions that domain is NULL
+		     if it's a primary domain account. */
 		  if (!cygheap->pg.nss_prefix_auto ())
-		    name_style = fully_qualified;
+		    fully_qualified_name = true;
 		}
 	      else
 		{
 		  /* No, fetch POSIX offset. */
 		  PDS_DOMAIN_TRUSTSW td = NULL;
 
-		  name_style = fully_qualified;
+		  fully_qualified_name = true;
 		  for (ULONG idx = 0;
 		       (td = cygheap->dom.trusted_domain (idx));
 		       ++idx)
 		    if (!wcscasecmp (dom, td->NetbiosDomainName))
 		      {
 			domain = td->DnsDomainName;
-			posix_offset =
-			  fetch_posix_offset (td, &loc_ldap);
 			break;
 		      }
-
 		  if (!domain)
 		    {
+		      /* This shouldn't happen, in theory, but it does.  There
+			 are cases where the user's logon domain does not show
+			 up in the list of trusted domains.  We're desperately
+			 trying to workaround that here bu adding an entry for
+			 this domain to the trusted domains and ask the DC for
+			 a  posix_offset.  There's a good chance this doesn't
+			 work either, but at least we tried, and the user can
+			 work. */
 		      debug_printf ("Unknown domain %W", dom);
-		      return NULL;
+		      td = cygheap->dom.add_domain (dom, sid);
+		      if (td)
+			domain = td->DnsDomainName;
 		    }
+		  if (domain)
+		    posix_offset = fetch_posix_offset (td, &loc_ldap);
 		}
+	    }
+	  /* AzureAD S-1-12-1-W-X-Y-Z user */
+	  else if (sid_id_auth (sid) == 12)
+	    {
+	      uid = gid = 0x1000;
+	      fully_qualified_name = true;
+	      home = cygheap->pg.get_home ((PUSER_INFO_3) NULL, sid, dom, name,
+					   fully_qualified_name);
+	      shell = cygheap->pg.get_shell ((PUSER_INFO_3) NULL, sid, dom,
+					     name, fully_qualified_name);
+	      gecos = cygheap->pg.get_gecos ((PUSER_INFO_3) NULL, sid, dom,
+					     name, fully_qualified_name);
+	      break;
 	    }
 	  /* If the domain returned by LookupAccountSid is not our machine
 	     name, and if our machine is no domain member, we lose.  We have
@@ -1573,52 +2302,49 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	      debug_printf ("Unknown domain %W", dom);
 	      return NULL;
 	    }
-	  /* Generate values. */
+	  /* Generate uid/gid values. */
 	  if (uid == ILLEGAL_UID)
 	    uid = posix_offset + sid_sub_auth_rid (sid);
-
-	  /* We only care for extended user information if we're creating a
-	     passwd entry and the account is a user or alias. */
-	  if (is_group () || acc_type == SidTypeGroup)
-	    break;
-
-	  if (acc_type == SidTypeUser)
+	  if (!is_group () && acc_type == SidTypeUser)
 	    {
 	      /* Default primary group.  If the sid is the current user, fetch
 		 the default group from the current user token, otherwise make
 		 the educated guess that the user is in group "Domain Users"
 		 or "None". */
 	      if (sid == cygheap->user.sid ())
-		gid = posix_offset
-		      + sid_sub_auth_rid (cygheap->user.groups.pgsid);
+		{
+		  is_current_user = true;
+		  gid = posix_offset
+			+ sid_sub_auth_rid (cygheap->user.groups.pgsid);
+		}
 	      else
 		gid = posix_offset + DOMAIN_GROUP_RID_USERS;
 	    }
 
 	  if (is_domain_account)
 	    {
-	      /* Use LDAP to fetch domain account infos. */
-	      if (cldap->open (NULL) != NO_ERROR)
+	      /* Skip this when creating group entries and for non-users. */
+	      if (is_group() || acc_type != SidTypeUser)
 		break;
-	      if (cldap->fetch_ad_account (sid, is_group (), domain))
+	      /* On AD machines, use LDAP to fetch domain account infos. */
+	      if (cygheap->dom.primary_dns_name ())
 		{
-		  PWCHAR val;
-
-		  if ((id_val = cldap->get_primary_gid ()) != ILLEGAL_GID)
+		  /* For the current user we got the primary group from the
+		     user token.  For any other user we fetch it from AD. */
+		  if (!is_current_user
+		      && cldap->fetch_ad_account (sid, false, domain)
+		      && (id_val = cldap->get_primary_gid ()) != ILLEGAL_GID)
 		    gid = posix_offset + id_val;
-		  if ((val = cldap->get_gecos ()))
-		    gecos = colon_to_semicolon (
-			      wcscpy ((PWCHAR) alloca ((wcslen (val) + 1)
-				      * sizeof (WCHAR)), val));
-		  if ((val = cldap->get_home ()))
-		    home = wcscpy ((PWCHAR) alloca ((wcslen (val) + 1)
-				   * sizeof (WCHAR)), val);
-		  if ((val = cldap->get_shell ()))
-		    shell = wcscpy ((PWCHAR) alloca ((wcslen (val) + 1)
-				    * sizeof (WCHAR)), val);
-		  /* Check and, if necessary, add unix<->windows id mapping on
-		     the fly, unless we're called from getpwent. */
-		  if (!pldap)
+		  home = cygheap->pg.get_home (cldap, sid, dom, domain,
+					       name, fully_qualified_name);
+		  shell = cygheap->pg.get_shell (cldap, sid, dom, domain,
+						 name,
+						 fully_qualified_name);
+		  gecos = cygheap->pg.get_gecos (cldap, sid, dom, domain,
+						 name, fully_qualified_name);
+		  /* Check and, if necessary, add unix<->windows id mapping
+		     on the fly, unless we're called from getpwent. */
+		  if (!pldap && cldap->is_open ())
 		    {
 		      id_val = cldap->get_unix_uid ();
 		      if (id_val != ILLEGAL_UID
@@ -1627,59 +2353,62 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 			cygheap->ugid_cache.add_uid (id_val, uid);
 		    }
 		}
-	    }
-	  /* Otherwise check account domain (local SAM).*/
-	  else
-	    {
-	      NET_API_STATUS nas;
-	      PUSER_INFO_4 ui;
-	      PLOCALGROUP_INFO_1 gi;
-	      PCWSTR comment;
-	      PWCHAR pgrp = NULL;
-	      PWCHAR uxid = NULL;
-	      struct {
-		PCWSTR str;
-		size_t len;
-		PWCHAR *tgt;
-		bool group;
-	      } search[] = {
-		{ L"unix=\"", 6, &uxid, true },
-		{ L"home=\"", 6, &home, false },
-		{ L"shell=\"", 7, &shell, false },
-		{ L"group=\"", 7, &pgrp, false },
-		{ NULL, 0, NULL }
-	      };
-	      PWCHAR s, e;
-
-	      if (acc_type == SidTypeUser)
+	      /* If primary_dns_name() is empty, we're likely running under an
+		 NT4 domain, so we can't use LDAP.  For user accounts fall back
+		 to NetUserGetInfo.  This isn't overly fast, but keep in mind
+		 that NT4 domains are mostly replaced by AD these days. */
+	      else
 		{
-		  nas = NetUserGetInfo (NULL, name, 4, (PBYTE *) &ui);
+		  WCHAR server[INTERNET_MAX_HOST_NAME_LENGTH + 3];
+		  NET_API_STATUS nas;
+		  PUSER_INFO_3 ui;
+		  
+		  if (!get_logon_server (cygheap->dom.primary_flat_name (),
+					 server, DS_IS_FLAT_NAME))
+		    break;
+		  nas = NetUserGetInfo (server, name, 3, (PBYTE *) &ui);
 		  if (nas != NERR_Success)
 		    {
 		      debug_printf ("NetUserGetInfo(%W) %u", name, nas);
 		      break;
 		    }
-		  /* Set comment variable for below attribute loop. */
-		  comment = ui->usri4_comment;
-		  /* Logging in with a Microsoft Account, the user's primary
-		     group SID is the user's SID.  Security sensitive tools
-		     expecting tight file permissions choke on that.  We need
-		     an explicit primary group which is not identical to the
-		     user account.  Unfortunately, while the default primary
-		     group of the account in SAM is still "None", "None" is not
-		     in the user token group list.  So, what we do here is to
-		     use "Users" as a sane default primary group instead. */
-		  if (wincap.has_microsoft_accounts ())
+		  gid = posix_offset + ui->usri3_primary_group_id;
+		  home = cygheap->pg.get_home (ui, sid, dom, name,
+					       fully_qualified_name);
+		  shell = cygheap->pg.get_shell (ui, sid, dom, name,
+						 fully_qualified_name);
+		  gecos = cygheap->pg.get_gecos (ui, sid, dom, name,
+						 fully_qualified_name);
+		}
+	    }
+	  /* Otherwise check account domain (local SAM).*/
+	  else
+	    {
+	      NET_API_STATUS nas;
+	      PUSER_INFO_3 ui;
+	      PLOCALGROUP_INFO_1 gi;
+	      char *pgrp = NULL;
+	      char *uxid = NULL;
+
+	      if (acc_type == SidTypeUser)
+		{
+		  nas = NetUserGetInfo (NULL, name, 3, (PBYTE *) &ui);
+		  if (nas != NERR_Success)
 		    {
-		      struct cyg_USER_INFO_24 *ui24;
-		      nas = NetUserGetInfo (NULL, name, 24, (PBYTE *) &ui24);
-		      if (nas == NERR_Success)
-			{
-			  if (ui24->usri24_internet_identity)
-			    gid = DOMAIN_ALIAS_RID_USERS;
-			  NetApiBufferFree (ui24);
-			}
+		      debug_printf ("NetUserGetInfo(%W) %u", name, nas);
+		      break;
 		    }
+		  /* Fetch user attributes. */
+		  home = cygheap->pg.get_home (ui, sid, dom, name,
+					       fully_qualified_name);
+		  shell = cygheap->pg.get_shell (ui, sid, dom, name,
+						 fully_qualified_name);
+		  gecos = cygheap->pg.get_gecos (ui, sid, dom, name,
+						 fully_qualified_name);
+		  uxid = fetch_from_description (ui->usri3_comment,
+						 L"unix=\"", 6);
+		  pgrp = fetch_from_description (ui->usri3_comment,
+						 L"group=\"", 7);
 		}
 	      else /* acc_type == SidTypeAlias */
 		{
@@ -1689,64 +2418,37 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 		      debug_printf ("NetLocalGroupGetInfo(%W) %u", name, nas);
 		      break;
 		    }
-		  /* Set comment variable for below attribute loop. */
-		  comment = gi->lgrpi1_comment;
+		  /* Fetch unix gid from comment field. */
+		  uxid = fetch_from_description (gi->lgrpi1_comment,
+						 L"unix=\"", 6);
 		}
-	      /* Local SAM accounts have only a handful attributes
-		 available to home users.  Therefore, fetch additional
-		 passwd/group attributes from the "Description" field
-		 in XML short style. */
-	      if ((s = wcsstr (comment, L"<cygwin "))
-		  && (e = wcsstr (s + 8, L"/>")))
-		{
-		  s += 8;
-		  *e = L'\0';
-		  while (*s)
-		    {
-		      bool found = false;
 
-		      while (*s == L' ')
-			++s;
-		      for (size_t i = 0; search[i].str; ++i)
-			if ((acc_type == SidTypeUser || search[i].group)
-			    && !wcsncmp (s, search[i].str, search[i].len))
-			  {
-			    s += search[i].len;
-			    if ((e = wcschr (s, L'"'))
-				&& (i > 0 || wcsncmp (name, s, e - s)))
-			      {
-				*search[i].tgt =
-				    (PWCHAR) alloca ((e - s + 1)
-						     * sizeof (WCHAR));
-				*wcpncpy (*search[i].tgt, s, e - s) = L'\0';
-				s = e + 1;
-				found = true;
-			      }
-			    else
-			      break;
-			  }
-		      if (!found)
-			break;
-		    }
-		}
 	      if (acc_type == SidTypeUser)
 		NetApiBufferFree (ui);
 	      else
 		NetApiBufferFree (gi);
 	      if (pgrp)
 		{
-		  /* For setting the primary group, we have to test 
-		     with and without prepended separator. */
-		  char gname[2 * UNLEN + 2];
+		  /* Set primary group from the "Description" field.  Prepend
+		     account domain if this is a domain member machine or the
+		     db_prefix setting requires it. */
+		  char gname[2 * DNLEN + strlen (pgrp) + 1], *gp = gname;
 		  struct group *gr;
 
-		  *gname = cygheap->pg.nss_separator ()[0];
-		  sys_wcstombs (gname + 1, 2 * UNLEN + 1, pgrp);
-		  if ((gr = internal_getgrnam (gname, cldap))
-		      || (gr = internal_getgrnam (gname + 1, cldap)))
+		  if (cygheap->dom.member_machine ()
+		      || !cygheap->pg.nss_prefix_auto ())
+		    {
+		      gp = gname
+			   + sys_wcstombs (gname, sizeof gname,
+					   cygheap->dom.account_flat_name ());
+		      *gp++ = cygheap->pg.nss_separator ()[0];
+		    }
+		  stpcpy (gp, pgrp);
+		  if ((gr = internal_getgrnam (gname, cldap)))
 		    gid = gr->gr_gid;
 		}
-	      if (!pldap && uxid && ((id_val = wcstoul (uxid, &e, 10)), !*e))
+	      char *e;
+	      if (!pldap && uxid && ((id_val = strtoul (uxid, &e, 10)), !*e))
 		{
 		  if (acc_type == SidTypeUser)
 		    {
@@ -1756,25 +2458,36 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 		  else if (cygheap->ugid_cache.get_gid (id_val) == ILLEGAL_GID)
 		    cygheap->ugid_cache.add_gid (id_val, uid);
 		}
+	      if (pgrp)
+		free (pgrp);
+	      if (uxid)
+		free (uxid);
 	    }
 	  break;
 	case SidTypeWellKnownGroup:
-	  name_style = (cygheap->pg.nss_prefix_always ()
-			|| sid_id_auth (sid) == 11) /* Microsoft Account */
-		       ? fully_qualified : plus_prepended;
+	  fully_qualified_name = (cygheap->pg.nss_prefix_always ()
+		  /* NT SERVICE Account */
+		  || (sid_id_auth (sid) == 5 /* SECURITY_NT_AUTHORITY */
+		      && sid_sub_auth (sid, 0) == SECURITY_SERVICE_ID_BASE_RID)
+		  /* Microsoft Account */
+		  || sid_id_auth (sid) == 11);
 #ifdef INTERIX_COMPATIBLE
 	  if (sid_id_auth (sid) == 5 /* SECURITY_NT_AUTHORITY */
 	      && sid_sub_auth_count (sid) > 1)
 	    {
 	      uid = 0x1000 * sid_sub_auth (sid, 0)
 		    + (sid_sub_auth_rid (sid) & 0xffff);
-	      name_style = fully_qualified;
+	      fully_qualified_name = true;
 	    }
 	  else
 	    uid = 0x10000 + 0x100 * sid_id_auth (sid)
 		  + (sid_sub_auth_rid (sid) & 0xff);
 #else
-	  if (sid_id_auth (sid) != 5 /* SECURITY_NT_AUTHORITY */)
+	  if (sid_id_auth (sid) == 15 /* SECURITY_APP_PACKAGE_AUTHORITY */)
+	    uid = 0x10000 + 0x100 * sid_id_auth (sid)
+		  + 0x10 * sid_sub_auth (sid, 0)
+		  + (sid_sub_auth_rid (sid) & 0xf);
+	  else if (sid_id_auth (sid) != 5 /* SECURITY_NT_AUTHORITY */)
 	    uid = 0x10000 + 0x100 * sid_id_auth (sid)
 		  + (sid_sub_auth_rid (sid) & 0xff);
 	  else if (sid_sub_auth (sid, 0) < SECURITY_PACKAGE_BASE_RID
@@ -1786,20 +2499,43 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 		    + (sid_sub_auth_rid (sid) & 0xffff);
 	    }
 #endif
-	  /* Special case for "Everyone".  We don't want to return Everyone
-	     as user or group.  Ever. */
-	  if (uid == 0x10100)	/* Computed from S-1-1-0. */
+	  /* Special case for "NULL SID", S-1-0-0 and "Everyone", S-1-1-0.
+	     Never return "NULL SID" or Everyone as user or group. */
+	  if (uid == 0x10000 || uid == 0x10100)
 	    return NULL;
 	  break;
 	case SidTypeLabel:
 	  uid = 0x60000 + sid_sub_auth_rid (sid);
-	  name_style = (cygheap->pg.nss_prefix_always ()) ? fully_qualified
-							  : plus_prepended;
+	  fully_qualified_name = cygheap->pg.nss_prefix_always ();
 	  break;
 	default:
 	  return NULL;
 	}
     } 
+  else if (sid_id_auth (sid) == 0 && sid_sub_auth (sid, 0) == 0xfffe)
+    {
+      /* Special case "nobody" for reproducible construction of a
+	 nobody SID for WinFsp and similar services.  We use the
+	 value 65534 which is -2 with 16 bit uid/gids. */
+      uid = gid = 0xfffe;
+      wcpcpy (dom, L"no");
+      wcpcpy (name = namebuf, L"body");
+      fully_qualified_name = true;
+      acc_type = SidTypeUnknown;
+    }
+  else if (sid_id_auth (sid) == 12 && sid_sub_auth (sid, 0) == 1)
+    {
+      /* Special AzureAD group SID which can't be resolved by
+         LookupAccountSid (ERROR_NONE_MAPPED).  This is only allowed
+	 as group entry, not as passwd entry. */
+      if (is_passwd ())
+	return NULL;
+      uid = gid = 0x1001;
+      wcpcpy (dom, L"AzureAD");
+      wcpcpy (name = namebuf, L"Group");
+      fully_qualified_name = true;
+      acc_type = SidTypeUnknown;
+    }
   else if (sid_id_auth (sid) == 5 /* SECURITY_NT_AUTHORITY */
 	   && sid_sub_auth (sid, 0) == SECURITY_LOGON_IDS_RID)
     {
@@ -1829,7 +2565,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
       wcpcpy (name = namebuf, sid_sub_auth_rid (sid) == 1
 	      ? (PWCHAR) L"Authentication authority asserted identity"
 	      : (PWCHAR) L"Service asserted identity");
-      name_style = plus_prepended;
+      fully_qualified_name = false;
       acc_type = SidTypeUnknown;
     }
   else if (sid_id_auth (sid) == 22)
@@ -1844,7 +2580,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
       p = wcpcpy (dom, L"Unix_");
       wcpcpy (p, sid_sub_auth (sid, 0) == 1 ? L"User" : L"Group");
       __small_swprintf (name = namebuf, L"%d", uid & UNIX_POSIX_MASK);
-      name_style = fully_qualified;
+      fully_qualified_name = true;
       acc_type = SidTypeUnknown;
     }
   else
@@ -1861,7 +2597,7 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	  if (RtlEqualSid (sid, cygheap->dom.primary_sid ()))
 	    {
 	      domain = cygheap->dom.primary_flat_name ();
-	      posix_offset = 0x100000;
+	      posix_offset = PRIMARY_POSIX_OFFSET;
 	    }
 	  else
 	    for (ULONG idx = 0; (td = cygheap->dom.trusted_domain (idx)); ++idx)
@@ -1871,10 +2607,10 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 		  posix_offset = fetch_posix_offset (td, &loc_ldap);
 		  break;
 		}
+	  sid_sub_auth_count (sid) = sid_sub_auth_count (sid) + 1;
 	}
       if (domain)
 	{
-	  sid_sub_auth_count (sid) = sid_sub_auth_count (sid) + 1;
 	  wcscpy (dom, domain);
 	  __small_swprintf (name = namebuf, L"%W(%u)",
 			    is_group () ? L"Group" : L"User",
@@ -1886,42 +2622,48 @@ pwdgrp::fetch_account_from_windows (fetch_user_arg_t &arg, cyg_ldap *pldap)
 	  wcpcpy (dom, L"Unknown");
 	  wcpcpy (name = namebuf, is_group () ? L"Group" : L"User");
 	}
-      name_style = fully_qualified;
+      fully_qualified_name = true;
       acc_type = SidTypeUnknown;
     }
 
   tmp_pathbuf tp;
-  PWCHAR linebuf = tp.w_get ();
+  char *linebuf = tp.c_get ();
   char *line = NULL;
 
   WCHAR posix_name[UNLEN + 1 + DNLEN + 1];
   p = posix_name;
   if (gid == ILLEGAL_GID)
     gid = uid;
-  if (name_style >= fully_qualified)
-    p = wcpcpy (p, dom);
-  if (name_style >= plus_prepended)
-    p = wcpcpy (p, cygheap->pg.nss_separator ());
+  if (fully_qualified_name)
+    p = wcpcpy (wcpcpy (p, dom), cygheap->pg.nss_separator ());
   wcpcpy (p, name);
 
   if (is_group ())
-    __small_swprintf (linebuf, L"%W:%W:%u:",
-		      posix_name, sid.string (sidstr), uid);
+    __small_sprintf (linebuf, "%W:%s:%u:",
+		     posix_name, sid.string ((char *) sidstr), uid);
   /* For non-users, create a passwd entry which doesn't allow interactive
      logon.  Unless it's the SYSTEM account.  This conveniently allows to
      logon interactively as SYSTEM for debugging purposes. */
   else if (acc_type != SidTypeUser && sid != well_known_system_sid)
-    __small_swprintf (linebuf, L"%W:*:%u:%u:,%W:/:/sbin/nologin",
-		      posix_name, uid, gid, sid.string (sidstr));
+    __small_sprintf (linebuf, "%W:*:%u:%u:U-%W\\%W,%s:/:/sbin/nologin",
+		     posix_name, uid, gid,
+		     dom, name,
+		     sid.string ((char *) sidstr));
   else
-    __small_swprintf (linebuf, L"%W:*:%u:%u:%W%WU-%W\\%W,%W:%W%W:%W",
-		      posix_name, uid, gid,
-		      gecos ?: L"", gecos ? L"," : L"",
-		      dom, name,
-		      sid.string (sidstr),
-		      home ? L"" : L"/home/", home ?: name,
-		      shell ?: L"/bin/bash");
-  sys_wcstombs_alloc (&line, HEAP_BUF, linebuf);
+    __small_sprintf (linebuf, "%W:*:%u:%u:%s%sU-%W\\%W,%s:%s%W:%s",
+		     posix_name, uid, gid,
+		     gecos ?: "", gecos ? "," : "",
+		     dom, name,
+		     sid.string ((char *) sidstr),
+		     home ?: "/home/", home ? L"" : name,
+		     shell ?: "/bin/bash");
+  if (gecos)
+    free (gecos);
+  if (home)
+    free (home);
+  if (shell)
+    free (shell);
+  line = cstrdup (linebuf);
   debug_printf ("line: <%s>", line);
   return line;
 }
@@ -1942,11 +2684,15 @@ client_request_pwdgrp::client_request_pwdgrp (fetch_user_arg_t &arg, bool group)
       break;
     case NAME_arg:
       p = stpcpy (_parameters.in.arg.name, arg.name);
-      len = p - _parameters.in.arg.name;
+      len = p - _parameters.in.arg.name + 1;
       break;
     case ID_arg:
       _parameters.in.arg.id = arg.id;
       len = sizeof (uint32_t);
+      break;
+    default:
+      api_fatal ("Fetching account info from cygserver with wrong arg.type "
+		 "%d", arg.type);
     }
   msglen (__builtin_offsetof (struct _pwdgrp_param_t::_pwdgrp_in_t, arg) + len);
 }

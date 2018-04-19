@@ -1,7 +1,5 @@
 /* cygwin_dll.h
 
-   Copyright 1998, 1999, 2000, 2001, 2009, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -35,9 +33,9 @@ static DWORD storedReason;						      \
 static void* storedPtr;							      \
 int __dynamically_loaded;						      \
 									      \
-static int __dllMain (int a __attribute__ ((unused)),			      \
-		      char **b __attribute__ ((unused)),		      \
-		      char **c __attribute__ ((unused)))		      \
+static int __dllMain (int a __attribute__ ((__unused__)),		      \
+		      char **b __attribute__ ((__unused__)),		      \
+		      char **c __attribute__ ((__unused__)))		      \
 {									      \
   return Entry (storedHandle, storedReason, storedPtr);		              \
 }									      \

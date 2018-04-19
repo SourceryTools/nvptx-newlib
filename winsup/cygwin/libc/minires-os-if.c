@@ -1,7 +1,5 @@
 /* minires-os-if.c.  Stub synchronous resolver for Cygwin.
 
-   Copyright 2006, 2007, 2008, 2009, 2011, 2012 Red Hat, Inc.
-
    Written by Pierre A. Humblet <Pierre.Humblet@ieee.org>
 
 This file is part of Cygwin.
@@ -39,10 +37,12 @@ details. */
 #define PUTDOMAIN(d,p)\
  {int res = dn_comp(d, p, EndPtr - p, dnptrs, lastdnptr); p += res < 0 ? (int) strlen(d) : res; }
 
-static u_char * write_record(unsigned char * ptr, PDNS_RECORD rr, unsigned char * EndPtr,
-			   unsigned char ** dnptrs, unsigned char ** lastdnptr, int debug)
+static unsigned char * write_record(unsigned char * ptr, PDNS_RECORD rr,
+				    unsigned char * EndPtr,
+				    unsigned char ** dnptrs,
+				    unsigned char ** lastdnptr, int debug)
 {
-  u_char * rd_length_ptr;
+  unsigned char * rd_length_ptr;
 
   PUTDOMAIN(rr->pName, ptr);
 
@@ -70,7 +70,7 @@ static u_char * write_record(unsigned char * ptr, PDNS_RECORD rr, unsigned char 
   switch(rr->wType) {
   case DNS_TYPE_A:
   {
-    u_char * aptr = (u_char *) & rr->Data.A.IpAddress;
+    u_int8_t * aptr = (u_int8_t *) & rr->Data.A.IpAddress;
     if (ptr + 4 <= EndPtr) {
       ptr[0] = aptr[0];
       ptr[1] = aptr[1];
@@ -249,6 +249,13 @@ static int cygwin_query(res_state statp, const char * DomName, int Class, int Ty
   rr = pQueryResultsSet;
   section = 0;
   while (rr) {
+    /* Some Windows versions return questions when providing locally generated
+       answers, for example for "localhost" or for the computer name. */
+    if (((rr->Flags.DW & 0x3) == DnsSectionQuestion) &&
+       (rr->wDataLength > 0)) {
+      DPRINTF(debug, "Changing record below from question to answer\n");
+      rr->Flags.DW ^= DnsSectionQuestion ^ DnsSectionAnswer;
+    }
     if (!counts[0] && (rr->Flags.DW & 0x3)) {
       /* No question. Adopt the first name as the name in the question */
       if ((len = dn_comp(rr->pName, ptr, AnsLength - 4,
@@ -279,7 +286,7 @@ static int cygwin_query(res_state statp, const char * DomName, int Class, int Ty
     rr = rr->pNext;
   }
 
-  DnsRecordListFree(pQueryResultsSet, DnsFreeRecordList);
+  DnsFree(pQueryResultsSet, DnsFreeRecordList);
 
   len = ptr - AnsPtr;
 done:

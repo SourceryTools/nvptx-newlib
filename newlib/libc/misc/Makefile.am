@@ -4,7 +4,12 @@ AUTOMAKE_OPTIONS = cygnus
 
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
-LIB_SOURCES = ffs.c
+LIB_SOURCES = __dprintf.c unctrl.c ffs.c init.c fini.c
+
+if NEWLIB_RETARGETABLE_LOCKING
+LIB_SOURCES += \
+	lock.c
+endif
 
 libmisc_la_LDFLAGS = -Xcompiler -nostdlib
 
@@ -21,19 +26,5 @@ endif # USE_LIBTOOL
 
 include $(srcdir)/../../Makefile.shared
 
-CHEWOUT_FILES = unctrl.def ffs.def
-
-SUFFIXES = .def
-
-CHEW = ../../doc/makedoc -f $(srcdir)/../../doc/doc.str
-
-.c.def:
-	$(CHEW) < $< > $*.def 2> $*.ref
-	touch stmp-def
-
-TARGETDOC = ../tmp.texi
-
-doc: $(CHEWOUT_FILES)
-	cat $(srcdir)/misc.tex >> $(TARGETDOC)
-
-CLEANFILES = $(CHEWOUT_FILES) *.ref
+CHEWOUT_FILES = unctrl.def lock.def ffs.def
+CHAPTERS = misc.tex

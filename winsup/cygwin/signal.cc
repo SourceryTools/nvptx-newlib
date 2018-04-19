@@ -1,8 +1,5 @@
 /* signal.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
    Written by Steve Chamberlain of Cygnus Support, sac@cygnus.com
    Significant changes by Sergey Okhapkin <sos@prospect.com.ru>
 
@@ -37,7 +34,7 @@ signal (int sig, _sig_func_ptr func)
   _sig_func_ptr prev;
 
   /* check that sig is in right range */
-  if (sig < 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP)
+  if (sig <= 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP)
     {
       set_errno (EINVAL);
       syscall_printf ("SIG_ERR = signal (%d, %p)", sig, func);
@@ -68,7 +65,7 @@ clock_nanosleep (clockid_t clk_id, int flags, const struct timespec *rqtp,
   sig_dispatch_pending ();
   pthread_testcancel ();
 
-  if (rqtp->tv_sec < 0 || rqtp->tv_nsec < 0 || rqtp->tv_nsec > 999999999L)
+  if (rqtp->tv_sec < 0 || rqtp->tv_nsec < 0 || rqtp->tv_nsec >= NSPERSEC)
     return EINVAL;
 
   /* Explicitly disallowed by POSIX. Needs to be checked first to avoid
@@ -92,8 +89,9 @@ clock_nanosleep (clockid_t clk_id, int flags, const struct timespec *rqtp,
 
   LARGE_INTEGER timeout;
 
-  timeout.QuadPart = (LONGLONG) rqtp->tv_sec * NSPERSEC
-		     + ((LONGLONG) rqtp->tv_nsec + 99LL) / 100LL;
+  timeout.QuadPart = (LONGLONG) rqtp->tv_sec * NS100PERSEC
+		     + ((LONGLONG) rqtp->tv_nsec + (NSPERSEC/NS100PERSEC) - 1)
+		       / (NSPERSEC/NS100PERSEC);
 
   if (abstime)
     {
@@ -110,7 +108,8 @@ clock_nanosleep (clockid_t clk_id, int flags, const struct timespec *rqtp,
       else
 	{
 	  /* other clocks need to be handled with a relative timeout */
-	  timeout.QuadPart -= tp.tv_sec * NSPERSEC + tp.tv_nsec / 100LL;
+	  timeout.QuadPart -= tp.tv_sec * NS100PERSEC
+			      + tp.tv_nsec / (NSPERSEC/NS100PERSEC);
 	  timeout.QuadPart *= -1LL;
 	}
     }
@@ -126,8 +125,9 @@ clock_nanosleep (clockid_t clk_id, int flags, const struct timespec *rqtp,
   /* according to POSIX, rmtp is used only if !abstime */
   if (rmtp && !abstime)
     {
-      rmtp->tv_sec = (time_t) (timeout.QuadPart / NSPERSEC);
-      rmtp->tv_nsec = (long) ((timeout.QuadPart % NSPERSEC) * 100LL);
+      rmtp->tv_sec = (time_t) (timeout.QuadPart / NS100PERSEC);
+      rmtp->tv_nsec = (long) ((timeout.QuadPart % NS100PERSEC)
+			      * (NSPERSEC/NS100PERSEC));
     }
 
   syscall_printf ("%d = clock_nanosleep(%lu, %d, %ld.%09ld, %ld.%09.ld)",
@@ -163,8 +163,8 @@ extern "C" unsigned int
 usleep (useconds_t useconds)
 {
   struct timespec req;
-  req.tv_sec = useconds / 1000000;
-  req.tv_nsec = (useconds % 1000000) * 1000;
+  req.tv_sec = useconds / USPERSEC;
+  req.tv_nsec = (useconds % USPERSEC) * (NSPERSEC/USPERSEC);
   int res = clock_nanosleep (CLOCK_REALTIME, 0, &req, NULL);
   if (res != 0)
     {
@@ -197,33 +197,37 @@ handle_sigprocmask (int how, const sigset_t *set, sigset_t *oldset, sigset_t& op
       return EINVAL;
     }
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return EFAULT;
-
-  if (oldset)
-    *oldset = opmask;
-
-  if (set)
-    {
-      sigset_t newmask = opmask;
-      switch (how)
+  __try
 	{
-	case SIG_BLOCK:
-	  /* add set to current mask */
-	  newmask |= *set;
-	  break;
-	case SIG_UNBLOCK:
-	  /* remove set from current mask */
-	  newmask &= ~*set;
-	  break;
-	case SIG_SETMASK:
-	  /* just set it */
-	  newmask = *set;
-	  break;
+      if (oldset)
+	*oldset = opmask;
+
+      if (set)
+	{
+	  sigset_t newmask = opmask;
+	  switch (how)
+	    {
+	    case SIG_BLOCK:
+	      /* add set to current mask */
+	      newmask |= *set;
+	      break;
+	    case SIG_UNBLOCK:
+	      /* remove set from current mask */
+	      newmask &= ~*set;
+	      break;
+	    case SIG_SETMASK:
+	      /* just set it */
+	      newmask = *set;
+	      break;
+	    }
+	  set_signal_mask (opmask, newmask);
 	}
-      set_signal_mask (opmask, newmask);
     }
+  __except (EFAULT)
+    {
+      return EFAULT;
+    }
+  __endtry
   return 0;
 }
 
@@ -259,7 +263,7 @@ _pinfo::kill (siginfo_t& si)
 	}
       this_pid = pid;
     }
-  else if (si.si_signo == 0 && this && process_state == PID_EXITED)
+  else if (process_state == PID_EXITED)
     {
       this_process_state = process_state;
       this_pid = pid;
@@ -278,7 +282,7 @@ _pinfo::kill (siginfo_t& si)
   return res;
 }
 
-int
+extern "C" int
 raise (int sig)
 {
   return kill (myself->pid, sig);
@@ -295,8 +299,17 @@ kill0 (pid_t pid, siginfo_t& si)
       syscall_printf ("signal %d out of range", si.si_signo);
       return -1;
     }
-
-  return (pid > 0) ? pinfo (pid)->kill (si) : kill_pgrp (-pid, si);
+  if (pid > 0)
+    {
+      pinfo p (pid);
+      if (!p)
+	{
+	  set_errno (ESRCH);
+	  return -1;
+	}
+      return p->kill (si);
+    }
+  return kill_pgrp (-pid, si);
 }
 
 int
@@ -322,7 +335,7 @@ kill_pgrp (pid_t pid, siginfo_t& si)
     {
       _pinfo *p = pids[i];
 
-      if (!p->exists ())
+      if (!p || !p->exists ())
 	continue;
 
       /* Is it a process we want to kill?  */
@@ -382,26 +395,28 @@ sigaction_worker (int sig, const struct sigaction *newact,
 		  struct sigaction *oldact, bool isinternal)
 {
   int res = -1;
-  myfault efault;
-  if (!efault.faulted (EFAULT))
+  __try
     {
       sig_dispatch_pending ();
       /* check that sig is in right range */
-      if (sig < 0 || sig >= NSIG)
+      if (sig <= 0 || sig >= NSIG)
 	set_errno (EINVAL);
       else
 	{
 	  struct sigaction oa = global_sigs[sig];
 
 	  if (!newact)
-	    sigproc_printf ("signal %d, newact %p, oa %p", sig, newact, oa, oa.sa_handler);
+	    sigproc_printf ("signal %d, newact %p, oa %p",
+			    sig, newact, oa, oa.sa_handler);
 	  else
 	    {
-	      sigproc_printf ("signal %d, newact %p (handler %p), oa %p", sig, newact, newact->sa_handler, oa, oa.sa_handler);
+	      sigproc_printf ("signal %d, newact %p (handler %p), oa %p",
+			      sig, newact, newact->sa_handler, oa,
+			      oa.sa_handler);
 	      if (sig == SIGKILL || sig == SIGSTOP)
 		{
 		  set_errno (EINVAL);
-		  goto out;
+		  __leave;
 		}
 	      struct sigaction na = *newact;
 	      struct sigaction& gs = global_sigs[sig];
@@ -430,8 +445,8 @@ sigaction_worker (int sig, const struct sigaction *newact,
 	    res = 0;
 	}
     }
-
-out:
+  __except (EFAULT) {}
+  __endtry
   return res;
 }
 
@@ -521,6 +536,18 @@ sigpause (int signal_mask)
 }
 
 extern "C" int
+__xpg_sigpause (int sig)
+{
+  int res;
+  sigset_t signal_mask;
+  sigprocmask (0, NULL, &signal_mask);
+  sigdelset (&signal_mask, sig);
+  res = handle_sigsuspend (signal_mask);
+  syscall_printf ("%R = __xpg_sigpause(%y)", res, sig);
+  return res;
+}
+
+extern "C" int
 pause (void)
 {
   int res = handle_sigsuspend (_my_tls.sigmask);
@@ -532,71 +559,111 @@ extern "C" int
 siginterrupt (int sig, int flag)
 {
   struct sigaction act;
-  sigaction (sig, NULL, &act);
-  if (flag)
+  int res = sigaction_worker (sig, NULL, &act, false);
+  if (res == 0)
     {
-      act.sa_flags &= ~SA_RESTART;
-      act.sa_flags |= _SA_NORESTART;
+      if (flag)
+	{
+	  act.sa_flags &= ~SA_RESTART;
+	  act.sa_flags |= _SA_NORESTART;
+	}
+      else
+	{
+	  act.sa_flags &= ~_SA_NORESTART;
+	  act.sa_flags |= SA_RESTART;
+	}
+      res = sigaction_worker (sig, &act, NULL, true);
     }
-  else
-    {
-      act.sa_flags &= ~_SA_NORESTART;
-      act.sa_flags |= SA_RESTART;
-    }
-  int res = sigaction_worker (sig, &act, NULL, true);
   syscall_printf ("%R = siginterrupt(%d, %y)", sig, flag);
   return res;
+}
+
+static inline int
+sigwait_common (const sigset_t *set, siginfo_t *info, PLARGE_INTEGER waittime)
+{
+  int res = -1;
+
+  pthread_testcancel ();
+
+  __try
+    {
+      set_signal_mask (_my_tls.sigwait_mask, *set);
+      sig_dispatch_pending (true);
+
+      switch (cygwait (NULL, waittime, cw_sig_eintr | cw_cancel | cw_cancel_self))
+	{
+	case WAIT_SIGNALED:
+	  if (!sigismember (set, _my_tls.infodata.si_signo))
+	    set_errno (EINTR);
+	  else
+	    {
+	      _my_tls.lock ();
+	      if (info)
+		*info = _my_tls.infodata;
+	      res = _my_tls.infodata.si_signo;
+	      _my_tls.sig = 0;
+	      if (_my_tls.retaddr () == (__tlsstack_t) sigdelayed)
+		_my_tls.pop ();
+	      _my_tls.unlock ();
+	    }
+	  break;
+	case WAIT_TIMEOUT:
+	  set_errno (EAGAIN);
+	  break;
+	default:
+	  __seterrno ();
+	  break;
+	}
+    }
+  __except (EFAULT) {
+    res = -1;
+  }
+  __endtry
+  sigproc_printf ("returning signal %d", res);
+  return res;
+}
+
+extern "C" int
+sigtimedwait (const sigset_t *set, siginfo_t *info, const timespec *timeout)
+{
+  LARGE_INTEGER waittime;
+
+  if (timeout)
+    {
+      if (timeout->tv_sec < 0
+	    || timeout->tv_nsec < 0 || timeout->tv_nsec > NSPERSEC)
+	{
+	  set_errno (EINVAL);
+	  return -1;
+	}
+      /* convert timespec to 100ns units */
+      waittime.QuadPart = (LONGLONG) timeout->tv_sec * NS100PERSEC
+                          + ((LONGLONG) timeout->tv_nsec + (NSPERSEC/NS100PERSEC) - 1)
+			    / (NSPERSEC/NS100PERSEC);
+    }
+
+  return sigwait_common (set, info, timeout ? &waittime : cw_infinite);
 }
 
 extern "C" int
 sigwait (const sigset_t *set, int *sig_ptr)
 {
-  int sig = sigwaitinfo (set, NULL);
+  int sig;
+
+  do
+    {
+      sig = sigwait_common (set, NULL, cw_infinite);
+    }
+  while (sig == -1 && get_errno () == EINTR);
   if (sig > 0)
     *sig_ptr = sig;
-  return sig > 0 ? 0 : -1;
+  return sig > 0 ? 0 : get_errno ();
 }
 
 extern "C" int
 sigwaitinfo (const sigset_t *set, siginfo_t *info)
 {
-  pthread_testcancel ();
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return EFAULT;
-
-  set_signal_mask (_my_tls.sigwait_mask, *set);
-  sig_dispatch_pending (true);
-
-  int res;
-  switch (cygwait (NULL, cw_infinite, cw_sig_eintr | cw_cancel | cw_cancel_self))
-    {
-    case WAIT_SIGNALED:
-      if (!sigismember (set, _my_tls.infodata.si_signo))
-	{
-	  set_errno (EINTR);
-	  res = -1;
-	}
-      else
-	{
-	  _my_tls.lock ();
-	  if (info)
-	    *info = _my_tls.infodata;
-	  res = _my_tls.infodata.si_signo;
-	  _my_tls.sig = 0;
-	  if (_my_tls.retaddr () == (__stack_t) sigdelayed)
-	    _my_tls.pop ();
-	  _my_tls.unlock ();
-	}
-      break;
-    default:
-      __seterrno ();
-      res = -1;
-    }
-
-  sigproc_printf ("returning signal %d", res);
-  return res;
+  return sigwait_common (set, info, cw_infinite);
 }
 
 /* FIXME: SUSv3 says that this function should block until the signal has
@@ -613,8 +680,81 @@ sigqueue (pid_t pid, int sig, const union sigval value)
       set_errno (ESRCH);
       return -1;
     }
+  if (sig == 0)
+    return 0;
+  if (sig < 0 || sig >= NSIG)
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
   si.si_signo = sig;
   si.si_code = SI_QUEUE;
   si.si_value = value;
   return sig_send (dest, si);
+}
+
+extern "C" int
+sigaltstack (const stack_t *ss, stack_t *oss)
+{
+  _cygtls& me = _my_tls;
+
+  __try
+    {
+      if (ss)
+	{
+	  if (me.altstack.ss_flags == SS_ONSTACK)
+	    {
+	      /* An attempt was made to modify an active stack. */
+	      set_errno (EPERM);
+	      return -1;
+	    }
+	  if (ss->ss_flags == SS_DISABLE)
+	    {
+	      me.altstack.ss_sp = NULL;
+	      me.altstack.ss_flags = 0;
+	      me.altstack.ss_size = 0;
+	    }
+	  else
+	    {
+	      if (ss->ss_flags)
+		{
+		  /* The ss argument is not a null pointer, and the ss_flags
+		     member pointed to by ss contains flags other than
+		     SS_DISABLE. */
+		  set_errno (EINVAL);
+		  return -1;
+		}
+	      if (ss->ss_size < MINSIGSTKSZ)
+		{
+		  /* The size of the alternate stack area is less than
+		     MINSIGSTKSZ. */
+		  set_errno (ENOMEM);
+		  return -1;
+		}
+	      memcpy (&me.altstack, ss, sizeof *ss);
+	    }
+	}
+      if (oss)
+	{
+	  char stack_marker;
+	  memcpy (oss, &me.altstack, sizeof *oss);
+	  /* Check if the current stack is the alternate signal stack.  If so,
+	     set ss_flags accordingly.  We do this here rather than setting
+	     ss_flags in _cygtls::call_signal_handler since the signal handler
+	     calls longjmp, so we never return to reset the flag. */
+	  if (!me.altstack.ss_flags && me.altstack.ss_sp)
+	    {
+	      if (&stack_marker >= (char *) me.altstack.ss_sp
+		  && &stack_marker < (char *) me.altstack.ss_sp
+				     + me.altstack.ss_size)
+		oss->ss_flags = SS_ONSTACK;
+	    }
+	}
+    }
+  __except (EFAULT)
+    {
+      return EFAULT;
+    }
+  __endtry
+  return 0;
 }

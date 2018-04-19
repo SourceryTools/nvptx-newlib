@@ -1,7 +1,5 @@
 /* pwdgrp.h
 
-   Copyright 2001, 2002, 2003, 2014 Red Hat inc.
-
    Stuff common to pwd and grp handling.
 
 This file is part of Cygwin.
@@ -15,6 +13,7 @@ details. */
 #include "sync.h"
 #include "ldap.h"
 #include "miscfuncs.h"
+#include "userinfo.h"
 
 /* These functions are needed to allow searching and walking through
    the passwd and group lists */
@@ -37,35 +36,21 @@ void *setgrent_filtered (int enums, PCWSTR enum_tdoms);
 void *getgrent_filtered (void *gr);
 void endgrent_filtered (void *gr);
 
-enum fetch_user_arg_type_t {
-  SID_arg,
-  NAME_arg,
-  ID_arg
-};
-
-struct fetch_user_arg_t
-{
-  fetch_user_arg_type_t type;
-  union {
-    cygpsid *sid;
-    const char *name;
-    uint32_t id;
-  };
-  /* Only used in fetch_account_from_file/line. */
-  size_t len;
-};
-
+/* NOTE: The below sid members were cygsid's originally.  Don't do that.
+   cygsid's are pointer based.  When adding new entries to the passwd or
+   group caches, a crealloc call potenitally moves the entries and then
+   the cygsid pointers point into neverneverland. */
 struct pg_pwd
 {
   struct passwd p;
-  cygsid sid;
+  BYTE sid[SECURITY_MAX_SID_SIZE];
   size_t len;
 };
 
 struct pg_grp
 {
   struct group g;
-  cygsid sid;
+  BYTE sid[SECURITY_MAX_SID_SIZE];
   size_t len;
 };
 
@@ -176,6 +161,8 @@ public:
     { return (struct group *) add_account_from_windows (name, pldap); }
   struct group *add_group_from_windows (uint32_t id, cyg_ldap *pldap = NULL)
     { return (struct group *) add_account_from_windows (id, pldap); }
+  struct group *add_group_from_windows (fetch_acc_t &full_acc,
+  					cyg_ldap *pldap = NULL);
   struct group *find_group (cygpsid &sid);
   struct group *find_group (const char *name);
   struct group *find_group (gid_t gid);
@@ -184,20 +171,21 @@ public:
 class pg_ent
 {
 protected:
-  pwdgrp        pg;
-  bool		group;
-  pg_pwd        pwd;
-  pg_grp        grp;
-  NT_readline	rl;
-  cyg_ldap	cldap;
-  PCHAR         buf;
-  ULONG         cnt;
-  ULONG         max;
-  ULONG_PTR     resume;
-  int           enums;		/* ENUM_xxx values defined in sys/cygwin.h. */
-  PCWSTR        enum_tdoms;
-  bool		from_files;
-  bool		from_db;
+  pwdgrp         pg;
+  bool           group;
+  pg_pwd         pwd;
+  pg_grp         grp;
+  NT_readline    rl;
+  cyg_ldap       cldap;
+  PCHAR          buf;
+  ULONG          cnt;
+  ULONG          max;
+  ULONG_PTR      resume;
+  int            enums;		/* ENUM_xxx values defined in sys/cygwin.h. */
+  PCWSTR         enum_tdoms;
+  bool           from_files;
+  bool           from_db;
+  UNICODE_STRING dom;
   enum {
     rewound = 0,
     from_cache,
@@ -260,3 +248,27 @@ public:
   struct group *getgrent ();
   inline void endgrent () { endent (true); }
 };
+
+/* These inline methods have to be defined here so that pg_pwd and pg_grp
+   are defined. */
+inline BOOL cygsid::getfrompw (const struct passwd *pw)
+  { return (*this = pw ? (PSID) ((pg_pwd *) pw)->sid : NO_SID) != NO_SID; }
+
+inline BOOL cygsid::getfromgr (const struct group *gr)
+  { return (*this = gr ? (PSID) ((pg_grp *) gr)->sid : NO_SID) != NO_SID; }
+
+/* Use these functions if you just need the PSID. */
+inline PSID sidfromuid (uid_t uid, cyg_ldap *pldap)
+  {
+    struct passwd *pw = internal_getpwuid (uid, pldap);
+    if (pw)
+      return (PSID) ((pg_pwd *) pw)->sid;
+    return NO_SID;
+  }
+inline PSID sidfromgid (gid_t gid, cyg_ldap *pldap)
+  {
+    struct group *gr = internal_getgrgid (gid, pldap);
+    if (gr)
+      return (PSID) ((pg_grp *) gr)->sid;
+    return NO_SID;
+  }

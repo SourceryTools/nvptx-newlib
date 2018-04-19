@@ -5,15 +5,9 @@ FUNCTION
 INDEX
 	strcasestr
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <string.h>
 	char *strcasestr(const char *<[s]>, const char *<[find]>);
-
-TRAD_SYNOPSIS
-	#include <string.h>
-	int strcasecmp(<[s]>, <[find]>)
-	char *<[s]>;
-	char *<[find]>;
 
 DESCRIPTION
 	<<strcasestr>> searchs the string <[s]> for
@@ -96,8 +90,8 @@ QUICKREF
  * Find the first occurrence of find in s, ignore case.
  */
 char *
-strcasestr(s, find)
-	const char *s, *find;
+strcasestr (const char *s,
+	const char *find)
 {
 #if defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)
 

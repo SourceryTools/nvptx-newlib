@@ -1,6 +1,6 @@
 /*
  * Support file for nvptx in newlib.
- * Copyright (c) 2014 Mentor Graphics.
+ * Copyright (c) 2014-2018 Mentor Graphics.
  *
  * The authors hereby grant permission to use, copy, modify, distribute,
  * and license this software and its documentation for any purpose, provided
@@ -14,17 +14,8 @@
  */
 
 #include <stdlib.h>
-#include <string.h>
 
-void *_realloc_os_r (struct _reent *r, void *p, size_t n, size_t oldn)
+void *_realloc_r (struct _reent *r, void *p, size_t n) _NOTHROW
 {
-  void *newp = p;
-  if (oldn < n)
-    {
-      newp = malloc (n);
-      if (p != 0)
-	memcpy (newp, p, oldn);
-    }
-  return newp;
+  return realloc (p, n);
 }
-

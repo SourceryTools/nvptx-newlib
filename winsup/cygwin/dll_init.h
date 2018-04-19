@@ -1,8 +1,5 @@
 /* dll_init.h
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -11,7 +8,7 @@ details. */
 
 struct per_module
 {
-#ifndef __x86_64__
+#ifdef __i386__
   char ***envptr;
 #endif
   void (**ctors)(void);
@@ -23,7 +20,7 @@ struct per_module
   int (*main)(int, char **, char **);
   per_module &operator = (per_process *p)
   {
-#ifndef __x86_64__
+#ifdef __i386__
     envptr = p->envptr;
 #endif
     ctors = p->ctors;

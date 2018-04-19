@@ -1,7 +1,5 @@
 /* process.h
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2012 Red Hat Inc.
-
    Written by Robert Collins <rbtcollins@hotmail.com>
 
 This file is part of Cygwin.
@@ -74,24 +72,22 @@ class process
   friend class process_cleanup;
 
 public:
-  process (pid_t cygpid, DWORD winpid,
-  	   HANDLE signal_arrived = INVALID_HANDLE_VALUE);
+  process (pid_t cygpid, DWORD winpid);
   ~process ();
 
   pid_t cygpid () const { return _cygpid; }
   DWORD winpid () const { return _winpid; }
   HANDLE handle () const { return _hProcess; }
-  HANDLE signal_arrived () const { return _signal_arrived; }
 
   bool is_active () const { return _exit_status == STILL_ACTIVE; }
 
   void _hold (const char *file, int line) {
-    _log (file, line, LOG_DEBUG, "Try hold(%lu)", _cygpid);
+    _debug (file, line, "Try hold(%lu)", _cygpid);
     EnterCriticalSection (&_access);
-    _log (file, line, LOG_DEBUG, "holding (%lu)", _cygpid);
+    _debug (file, line, "holding (%lu)", _cygpid);
   }
   void _release (const char *file, int line) {
-    _log (file, line, LOG_DEBUG, "leaving (%lu)", _cygpid);
+    _debug (file, line, "leaving (%lu)", _cygpid);
     LeaveCriticalSection (&_access);
   }
 
@@ -102,7 +98,6 @@ private:
   const pid_t _cygpid;
   const DWORD _winpid;
   HANDLE _hProcess;
-  HANDLE _signal_arrived;
   LONG _cleaning_up;
   DWORD _exit_status;		// Set in the constructor and in exit_code ().
   cleanup_routine *_routines_head;
@@ -144,8 +139,7 @@ public:
   process_cache (const size_t max_procs, const unsigned int initial_workers);
   ~process_cache ();
 
-  class process *process (pid_t cygpid, DWORD winpid,
-  			  HANDLE signal_arrived = INVALID_HANDLE_VALUE);
+  class process *process (pid_t cygpid, DWORD winpid);
 
   bool running () const { return _queue.running (); }
 

@@ -51,7 +51,7 @@ _printf_common (struct _reent *data,
 		int *realsz,
 		FILE *fp,
 		int (*pfunc)(struct _reent *, FILE *,
-			     _CONST char *, size_t len))
+			     const char *, size_t len))
 {
   int n;
   /*
@@ -106,7 +106,7 @@ error:
 }
 int
 _printf_i (struct _reent *data, struct _prt_data_t *pdata, FILE *fp,
-	   int (*pfunc)(struct _reent *, FILE *, _CONST char *, size_t len),
+	   int (*pfunc)(struct _reent *, FILE *, const char *, size_t len),
 	   va_list *ap)
 {
   /* Field size expanded by dprec.  */
@@ -150,8 +150,10 @@ _printf_i (struct _reent *data, struct _prt_data_t *pdata, FILE *fp,
        * defined manner.''
        *	-- ANSI X3J11
        */
-      /* NOSTRICT.  */
       pdata->flags |= HEXPREFIX;
+      if (sizeof (void*) > sizeof (int))
+	pdata->flags |= LONGINT;
+      /* NOSTRICT.  */
     case 'x':
       pdata->l_buf[2] = 'x';
       xdigs = "0123456789abcdef";
@@ -211,15 +213,15 @@ number:
     case 's':
       cp = GET_ARG (N, *ap, char_ptr_t);
       /* Precision gives the maximum number of chars to be written from a
-	 string, and take prec == -1 into consideration.  */
-      if ((u_int)(pdata->size = strlen (cp)) > (u_int)(pdata->prec))
-	pdata->size = pdata->prec;
-      /* Below code is kept for reading.  The check is redundant because
-	 pdata->prec will be set to pdata->size if it is -1 previously.  */
-#if 0
-      if (pdata->prec > pdata->size)
-#endif
-      pdata->prec = pdata->size;
+	 string, and take prec == -1 into consideration.
+	 Use normal Newlib approach here to support case where cp is not
+	 nul-terminated.  */
+      char *p = memchr (cp, 0, pdata->prec);
+
+      if (p != NULL)
+	pdata->prec = p - cp;
+
+      pdata->size = pdata->prec;
       goto non_number_nosign;
     default:
       /* "%?" prints ?, unless ? is NUL.  */

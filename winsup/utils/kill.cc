@@ -1,8 +1,5 @@
 /* kill.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007,
-   2009, 2011 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -58,7 +55,7 @@ print_version ()
 {
   printf ("kill (cygwin) %d.%d.%d\n"
 	  "Process Signaller\n"
-	  "Copyright (C) 1996 - %s Red Hat, Inc.\n"
+	  "Copyright (C) 1996 - %s Cygwin Authors\n"
 	  "This is free software; see the source for copying conditions.  There is NO\n"
 	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
 	  CYGWIN_VERSION_DLL_MAJOR / 1000,
@@ -70,7 +67,7 @@ print_version ()
 static const char *
 strsigno (int signo)
 {
-  if (signo >= 0 && signo < NSIG)
+  if (signo > 0 && signo < NSIG)
     return sys_sigabbrev[signo];
   static char buf[sizeof ("Unknown signal") + 32];
   sprintf (buf, "Unknown signal %d", signo);
@@ -93,7 +90,7 @@ getsig (const char *in_sig)
     }
   intsig = strtosigno (sig) ?: atoi (in_sig);
   char *p;
-  if (!intsig && (strcmp (buf, "SIG0") != 0 && (strtol (in_sig, &p, 10) != 0 || *p)))
+  if (!intsig && (strcmp (sig, "SIG0") != 0 && (strtol (in_sig, &p, 10) != 0 || *p)))
     intsig = -1;
   return intsig;
 }
@@ -121,7 +118,7 @@ listsig (const char *in_sig)
     {
       sig = getsig (in_sig);
       test_for_unknown_sig (sig, in_sig);
-      if (atoi (in_sig) == sig)
+      if (sig && atoi (in_sig) == sig)
 	puts (strsigno (sig) + 3);
       else
 	printf ("%d\n", sig);

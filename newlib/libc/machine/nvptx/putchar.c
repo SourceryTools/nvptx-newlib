@@ -1,6 +1,6 @@
 /*
  * Support file for nvptx in newlib.
- * Copyright (c) 2015 Mentor Graphics.
+ * Copyright (c) 2015-2018 Mentor Graphics.
  *
  * The authors hereby grant permission to use, copy, modify, distribute,
  * and license this software and its documentation for any purpose, provided

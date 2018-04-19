@@ -1,8 +1,5 @@
 /* winsup.h: main Cygwin header file.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -19,12 +16,15 @@ details. */
 
 #define EXPORT_ALIAS(sym,symalias) extern "C" __typeof (sym) symalias __attribute__ ((alias(#sym)));
 
-/* Fun, fun, fun.  On Mingw64, WINVER is set according to the value of
-   _WIN32_WINNT, on Mingw32 it's exactly the opposite... */
-#define _WIN32_WINNT 0x0602
-#define WINVER 0x0602
+#define _WIN32_WINNT 0x0a00
+#define WINVER 0x0a00
 
 #define _NO_W32_PSEUDO_MODIFIERS
+
+/* Newlib's guarding functions more diligently based on their origin, starting
+   since 2013.  To be sure to get everything and the kitchen sink, we have to
+   define _GNU_SOURCE. */
+#define _GNU_SOURCE 1
 
 #include <sys/types.h>
 #include <sys/strace.h>
@@ -85,9 +85,7 @@ extern const unsigned char case_folded_lower[];
 extern const unsigned char case_folded_upper[];
 #define cyg_toupper(c) ((char) case_folded_upper[(unsigned char)(c)])
 
-#ifndef MALLOC_DEBUG
 #define cfree newlib_cfree_dont_use
-#endif
 
 /* Used as type by sys_wcstombs_alloc and sys_mbstowcs_alloc.  For a
    description see there. */
@@ -126,7 +124,7 @@ extern int cygserver_running;
     })
 
 /* Convert a signal to a signal mask */
-#define SIGTOMASK(sig)	(1 << ((sig) - 1))
+#define SIGTOMASK(sig)	((sigset_t) 1 << ((sig) - 1))
 
 #define set_api_fatal_return(n) do {extern int __api_fatal_exit_val; __api_fatal_exit_val = (n);} while (0)
 
@@ -162,10 +160,10 @@ extern "C" PVOID dll_dllcrt0 (HMODULE, per_process *);
 
 extern "C" void _pei386_runtime_relocator (per_process *);
 
-#ifndef __x86_64__
+#ifdef __i386__
 /* dynamically loaded dll initialization for non-cygwin apps */
 extern "C" int dll_noncygwin_dllcrt0 (HMODULE, per_process *);
-#endif /* !__x86_64__ */
+#endif /* __i386__ */
 
 void __reg1 do_exit (int) __attribute__ ((noreturn));
 
@@ -208,13 +206,11 @@ void __stdcall to_timestruc_t (PLARGE_INTEGER, timestruc_t *);
 void __stdcall time_as_timestruc_t (timestruc_t *);
 void __stdcall timeval_to_filetime (const struct timeval *, PLARGE_INTEGER);
 void __stdcall timespec_to_filetime (const struct timespec *, PLARGE_INTEGER);
+bool timeval_to_ms (const struct timeval *, DWORD &);
 
 /* Console related */
 void __stdcall set_console_title (char *);
 void init_console_handler (bool);
-
-void __reg2 __set_winsock_errno (const char *fn, int ln);
-#define set_winsock_errno() __set_winsock_errno (__FUNCTION__, __LINE__)
 
 extern bool wsock_started;
 
@@ -227,8 +223,6 @@ int __small_swprintf (PWCHAR dst, const WCHAR *fmt, ...);
 int __small_vswprintf (PWCHAR dst, const WCHAR *fmt, va_list ap);
 void multiple_cygwin_problem (const char *, uintptr_t, uintptr_t);
 
-extern "C" void vklog (int priority, const char *message, va_list ap);
-extern "C" void klog (int priority, const char *message, ...);
 bool child_copy (HANDLE, bool, ...);
 
 class path_conv;
@@ -255,14 +249,6 @@ extern inline bool flush_file_buffers (HANDLE h)
 
 /* Make sure that regular ExitThread is never called */
 #define ExitThread exit_thread
-
-/**************************** Exports ******************************/
-
-extern "C" {
-int cygwin_select (int , fd_set *, fd_set *, fd_set *,
-		   struct timeval *to);
-int cygwin_gethostname (char *__name, size_t __len);
-};
 
 /*************************** Unsorted ******************************/
 

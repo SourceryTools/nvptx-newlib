@@ -5,16 +5,9 @@ FUNCTION
 INDEX
 	memrchr
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <string.h>
 	void *memrchr(const void *<[src]>, int <[c]>, size_t <[length]>);
-
-TRAD_SYNOPSIS
-	#include <string.h>
-	void *memrchr(<[src]>, <[c]>, <[length]>)
-	void *<[src]>;
-	void *<[c]>;
-	size_t <[length]>;
 
 DESCRIPTION
 	This function searches memory starting at <[length]> bytes
@@ -68,19 +61,18 @@ QUICKREF
    to fill (long)MASK. */
 #define DETECTCHAR(X,MASK) (DETECTNULL(X ^ MASK))
 
-_PTR
-_DEFUN (memrchr, (src_void, c, length),
-	_CONST _PTR src_void _AND
-	int c _AND
+void *
+memrchr (const void *src_void,
+	int c,
 	size_t length)
 {
-  _CONST unsigned char *src = (_CONST unsigned char *) src_void + length - 1;
+  const unsigned char *src = (const unsigned char *) src_void + length - 1;
   unsigned char d = c;
 
 #if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__)
   unsigned long *asrc;
   unsigned long  mask;
-  int i;
+  unsigned int i;
 
   while (UNALIGNED (src))
     {

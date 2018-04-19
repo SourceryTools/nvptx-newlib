@@ -1,8 +1,5 @@
 /* pinfo.cc: process table support
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -38,7 +35,9 @@ public:
 pinfo_basic::pinfo_basic ()
 {
   pid = dwProcessId = GetCurrentProcessId ();
-  GetModuleFileNameW (NULL, progname, sizeof (progname) / sizeof (WCHAR));
+  PWCHAR pend = wcpncpy (progname, global_progname,
+			 sizeof (progname) / sizeof (WCHAR) - 1);
+  *pend = L'\0';
   /* Default uid/gid are needed very early to initialize shared user info. */
   uid = ILLEGAL_UID;
   gid = ILLEGAL_GID;
@@ -120,20 +119,18 @@ pinfo::status_exit (DWORD x)
     {
     case STATUS_DLL_NOT_FOUND:
       {
-	char posix_prog[NT_MAX_PATH];
 	path_conv pc;
 	if (!procinfo)
-	   pc.check ("/dev/null");
+	   pc.check ("/dev/null", PC_NOWARN | PC_POSIX);
 	else
 	  {
 	    UNICODE_STRING uc;
 	    RtlInitUnicodeString(&uc, procinfo->progname);
-	    pc.check (&uc, PC_NOWARN);
+	    pc.check (&uc, PC_NOWARN | PC_POSIX);
 	  }
-	mount_table->conv_to_posix_path (pc.get_win32 (), posix_prog, 1);
 	small_printf ("%s: error while loading shared libraries: %s: cannot "
 		      "open shared object file: No such file or directory\n",
-		      posix_prog, find_first_notloaded_dll (pc));
+		      pc.get_posix (), find_first_notloaded_dll (pc));
 	x = 127 << 8;
       }
       break;
@@ -317,12 +314,30 @@ pinfo::init (pid_t n, DWORD flag, HANDLE h0)
       /* Detect situation where a transitional memory block is being retrieved.
 	 If the block has been allocated with PINFO_REDIR_SIZE but not yet
 	 updated with a PID_EXECED state then we'll retry.  */
-      if (!created && !(flag & PID_NEW))
-	/* If not populated, wait 2 seconds for procinfo to become populated.
-	   Would like to wait with finer granularity but that is not easily
-	   doable.  */
-	for (int i = 0; i < 200 && !procinfo->ppid; i++)
-	  Sleep (10);
+      if (!created && !(flag & PID_NEW) && !procinfo->ppid)
+	{
+	  /* Fetching process info for /proc or ps?  just ignore this one. */
+	  if (flag & PID_NOREDIR)
+	    break;
+	  /* FIXME: Do we ever hit this case?  And if so, in what situation? */
+	  system_printf ("This shouldn't happen:\n"
+			 "    me: (%d, %d, %d, %W)\n"
+			 "    pid %d\n"
+			 "    process_state %y\n"
+			 "    cygstarted %d\n"
+			 "    dwProcessId %d\n"
+			 "    name %W",
+			 myself->pid, myself->dwProcessId, myself->cygstarted,
+			 myself->progname,
+			 procinfo->pid, procinfo->process_state,
+			 procinfo->cygstarted, procinfo->dwProcessId,
+			 procinfo->progname);
+	  /* If not populated, wait 2 seconds for procinfo to become populated.
+	     Would like to wait with finer granularity but that is not easily
+	     doable.  */
+	  for (int i = 0; i < 200 && !procinfo->ppid; i++)
+	    Sleep (10);
+	}
 
       if (!created && createit && (procinfo->process_state & PID_REAPED))
 	{
@@ -452,7 +467,7 @@ _pinfo::_ctty (char *buf)
     {
       device d;
       d.parse (ctty);
-      __small_sprintf (buf, "ctty %s", d.name);
+      __small_sprintf (buf, "ctty %s", d.name ());
     }
   return buf;
 }
@@ -462,7 +477,7 @@ _pinfo::set_ctty (fhandler_termios *fh, int flags)
 {
   tty_min& tc = *fh->tc ();
   debug_printf ("old %s, ctty device number %y, tc.ntty device number %y flags & O_NOCTTY %y", __ctty (), ctty, tc.ntty, flags & O_NOCTTY);
-  if (fh && &tc && (ctty <= 0 || ctty == tc.ntty) && !(flags & O_NOCTTY))
+  if (fh && (ctty <= 0 || ctty == tc.ntty) && !(flags & O_NOCTTY))
     {
       ctty = tc.ntty;
       if (cygheap->ctty != fh->archetype)
@@ -505,7 +520,7 @@ _pinfo::set_ctty (fhandler_termios *fh, int flags)
       if (!tc.getpgid () && pgid == pid)
 	tc.setpgid (pgid);
     }
-  debug_printf ("cygheap->ctty now %p, archetype %p", cygheap->ctty, fh->archetype);
+  debug_printf ("cygheap->ctty now %p, archetype %p", cygheap->ctty, fh ? fh->archetype : NULL);
   return ctty > 0;
 }
 
@@ -514,13 +529,14 @@ _pinfo::set_ctty (fhandler_termios *fh, int flags)
 bool __reg1
 _pinfo::exists ()
 {
-  return this && process_state && !(process_state & (PID_EXITED | PID_REAPED | PID_EXECED));
+  return process_state && !(process_state & (PID_EXITED | PID_REAPED | PID_EXECED));
 }
 
 bool
 _pinfo::alive ()
 {
-  HANDLE h = OpenProcess (PROCESS_QUERY_INFORMATION, false, dwProcessId);
+  HANDLE h = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, false,
+			  dwProcessId);
   if (h)
     CloseHandle (h);
   return !!h;
@@ -622,11 +638,11 @@ commune_process (void *arg)
     case PICOM_PIPE_FHANDLER:
       {
 	sigproc_printf ("processing PICOM_FDS");
-	HANDLE hdl = si._si_commune._si_pipe_fhandler;
+	int64_t unique_id = si._si_commune._si_pipe_unique_id;
 	unsigned int n = 0;
 	cygheap_fdenum cfd;
 	while (cfd.next () >= 0)
-	  if (cfd->get_handle () == hdl)
+	  if (cfd->get_unique_id () == unique_id)
 	    {
 	      fhandler_pipe *fh = cfd;
 	      n = sizeof *fh;
@@ -654,6 +670,25 @@ commune_process (void *arg)
 	  sigproc_printf ("WritePipeOverlapped sizeof fd failed, %E");
 	else if (!WritePipeOverlapped (tothem, path, n, &nr, 1000L))
 	  sigproc_printf ("WritePipeOverlapped fd failed, %E");
+	break;
+      }
+    case PICOM_ENVIRON:
+      {
+	sigproc_printf ("processing PICOM_ENVIRON");
+	unsigned n = 0;
+	char **env = cur_environ ();
+	for (char **e = env; *e; e++)
+	  n += strlen (*e) + 1;
+	if (!WritePipeOverlapped (tothem, &n, sizeof n, &nr, 1000L))
+	  sigproc_printf ("WritePipeOverlapped sizeof argv failed, %E");
+	else
+	  for (char **e = env; *e; e++)
+	    if (!WritePipeOverlapped (tothem, *e, strlen (*e) + 1, &nr, 1000L))
+	      {
+	        sigproc_printf ("WritePipeOverlapped arg %d failed, %E",
+				e - env);
+	        break;
+	      }
 	break;
       }
     }
@@ -685,9 +720,14 @@ _pinfo::commune_request (__uint32_t code, ...)
   res.s = NULL;
   res.n = 0;
 
-  if (!this || !pid)
+  if (!pid)
     {
       set_errno (ESRCH);
+      goto err;
+    }
+  if (ISSTATE (this, PID_NOTCYGWIN))
+    {
+      set_errno (ENOTSUP);
       goto err;
     }
 
@@ -696,7 +736,7 @@ _pinfo::commune_request (__uint32_t code, ...)
   switch (code)
     {
     case PICOM_PIPE_FHANDLER:
-      si._si_commune._si_pipe_fhandler = va_arg (args, HANDLE);
+      si._si_commune._si_pipe_unique_id = va_arg (args, int64_t);
       break;
 
     case PICOM_FD:
@@ -727,6 +767,7 @@ _pinfo::commune_request (__uint32_t code, ...)
     {
     case PICOM_CMDLINE:
     case PICOM_CWD:
+    case PICOM_ENVIRON:
     case PICOM_ROOT:
     case PICOM_FDS:
     case PICOM_FD:
@@ -776,13 +817,13 @@ out:
 }
 
 fhandler_pipe *
-_pinfo::pipe_fhandler (HANDLE hdl, size_t &n)
+_pinfo::pipe_fhandler (int64_t unique_id, size_t &n)
 {
-  if (!this || !pid)
+  if (!pid)
     return NULL;
   if (pid == myself->pid)
     return NULL;
-  commune_result cr = commune_request (PICOM_PIPE_FHANDLER, hdl);
+  commune_result cr = commune_request (PICOM_PIPE_FHANDLER, unique_id);
   n = cr.n;
   return (fhandler_pipe *) cr.s;
 }
@@ -791,7 +832,7 @@ char *
 _pinfo::fd (int fd, size_t &n)
 {
   char *s;
-  if (!this || !pid)
+  if (!pid)
     return NULL;
   if (pid != myself->pid)
     {
@@ -815,7 +856,7 @@ char *
 _pinfo::fds (size_t &n)
 {
   char *s;
-  if (!this || !pid)
+  if (!pid)
     return NULL;
   if (pid != myself->pid)
     {
@@ -843,9 +884,9 @@ char *
 _pinfo::root (size_t& n)
 {
   char *s;
-  if (!this || !pid)
+  if (!pid)
     return NULL;
-  if (pid != myself->pid)
+  if (pid != myself->pid && !ISSTATE (this, PID_NOTCYGWIN))
     {
       commune_result cr = commune_request (PICOM_ROOT);
       s = cr.s;
@@ -862,13 +903,61 @@ _pinfo::root (size_t& n)
   return s;
 }
 
+static HANDLE
+open_commune_proc_parms (DWORD pid, PRTL_USER_PROCESS_PARAMETERS prupp)
+{
+  HANDLE proc;
+  NTSTATUS status;
+  PROCESS_BASIC_INFORMATION pbi;
+  PEB lpeb;
+
+  proc = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+		      FALSE, pid);
+  if (!proc)
+    return NULL;
+  status = NtQueryInformationProcess (proc, ProcessBasicInformation,
+				      &pbi, sizeof pbi, NULL);
+  if (NT_SUCCESS (status)
+      && ReadProcessMemory (proc, pbi.PebBaseAddress, &lpeb, sizeof lpeb, NULL)
+      && ReadProcessMemory (proc, lpeb.ProcessParameters, prupp, sizeof *prupp,
+			    NULL))
+	return proc;
+  NtClose (proc);
+  return NULL;
+}
+
 char *
 _pinfo::cwd (size_t& n)
 {
-  char *s;
-  if (!this || !pid)
+  char *s = NULL;
+  if (!pid)
     return NULL;
-  if (pid != myself->pid)
+  if (ISSTATE (this, PID_NOTCYGWIN))
+    {
+      RTL_USER_PROCESS_PARAMETERS rupp;
+      HANDLE proc = open_commune_proc_parms (dwProcessId, &rupp);
+
+      n = 0;
+      if (!proc)
+	return NULL;
+
+      tmp_pathbuf tp;
+      PWCHAR cwd = tp.w_get ();
+
+      if (ReadProcessMemory (proc, rupp.CurrentDirectoryName.Buffer,
+			     cwd, rupp.CurrentDirectoryName.Length,
+			     NULL))
+	{
+	  /* Drop trailing backslash, add trailing \0 in passing. */
+	  cwd[rupp.CurrentDirectoryName.Length / sizeof (WCHAR) - 1]
+	  = L'\0';
+	  s = (char *) cmalloc_abort (HEAP_COMMUNE, NT_MAX_PATH);
+	  mount_table->conv_to_posix_path (cwd, s, 0);
+	  n = strlen (s) + 1;
+	}
+      NtClose (proc);
+    }
+  else if (pid != myself->pid)
     {
       commune_result cr = commune_request (PICOM_CWD);
       s = cr.s;
@@ -886,10 +975,41 @@ _pinfo::cwd (size_t& n)
 char *
 _pinfo::cmdline (size_t& n)
 {
-  char *s;
-  if (!this || !pid)
+  char *s = NULL;
+  if (!pid)
     return NULL;
-  if (pid != myself->pid)
+  if (ISSTATE (this, PID_NOTCYGWIN))
+    {
+      RTL_USER_PROCESS_PARAMETERS rupp;
+      HANDLE proc = open_commune_proc_parms (dwProcessId, &rupp);
+
+      n = 0;
+      if (!proc)
+	return NULL;
+
+      tmp_pathbuf tp;
+      PWCHAR cmdline = tp.w_get ();
+
+      if (ReadProcessMemory (proc, rupp.CommandLine.Buffer, cmdline,
+			     rupp.CommandLine.Length, NULL))
+	{
+	  /* Add trailing \0. */
+	  cmdline[rupp.CommandLine.Length / sizeof (WCHAR)]
+	  = L'\0';
+	  n = sys_wcstombs_alloc (&s, HEAP_COMMUNE, cmdline,
+				  rupp.CommandLine.Length
+				  / sizeof (WCHAR));
+	  /* Quotes & Spaces post-processing. */
+	  bool in_quote = false;
+	  for (char *c = s; *c; ++c)
+	    if (*c == '"')
+	      in_quote = !in_quote;
+	    else if (*c == ' ' && !in_quote)
+	     *c = '\0';
+	}
+      NtClose (proc);
+    }
+  else if (pid != myself->pid)
     {
       commune_result cr = commune_request (PICOM_CMDLINE);
       s = cr.s;
@@ -907,6 +1027,66 @@ _pinfo::cmdline (size_t& n)
 	  strcpy (p, *a);
 	  p = strchr (p, '\0') + 1;
 	}
+    }
+  return s;
+}
+
+
+char *
+_pinfo::environ (size_t& n)
+{
+  char **env = NULL;
+  if (!pid)
+    return NULL;
+  if (ISSTATE (this, PID_NOTCYGWIN))
+    {
+      RTL_USER_PROCESS_PARAMETERS rupp;
+      HANDLE proc = open_commune_proc_parms (dwProcessId, &rupp);
+
+      if (!proc)
+        return NULL;
+
+      MEMORY_BASIC_INFORMATION mbi;
+      SIZE_T envsize;
+      PWCHAR envblock;
+      if (!VirtualQueryEx (proc, rupp.Environment, &mbi, sizeof(mbi)))
+        {
+          NtClose (proc);
+          return NULL;
+        }
+
+      SIZE_T read;
+      envsize = (ptrdiff_t) mbi.RegionSize
+                - ((ptrdiff_t) rupp.Environment - (ptrdiff_t) mbi.BaseAddress);
+      envblock = (PWCHAR) cmalloc_abort (HEAP_COMMUNE, envsize);
+
+      if (ReadProcessMemory (proc, rupp.Environment, envblock, envsize, &read))
+        env = win32env_to_cygenv (envblock, false);
+
+      NtClose (proc);
+    }
+  else if (pid != myself->pid)
+    {
+      commune_result cr = commune_request (PICOM_ENVIRON);
+      n = cr.n;
+      return cr.s;
+    }
+  else
+    env = cur_environ ();
+
+  if (env == NULL)
+    return NULL;
+
+  n = 0;
+  for (char **e = env; *e; e++)
+    n += strlen (*e) + 1;
+
+  char *p, *s;
+  p = s = (char *) cmalloc_abort (HEAP_COMMUNE, n);
+  for (char **e = env; *e; e++)
+    {
+      strcpy (p, *e);
+      p = strchr (p, '\0') + 1;
     }
   return s;
 }
@@ -1163,7 +1343,7 @@ winpids::add (DWORD& nelem, bool winpid, DWORD pid)
     {
       /* Open a process to prevent a subsequent exit from invalidating the
 	 shared memory region. */
-      onreturn = OpenProcess (PROCESS_QUERY_INFORMATION, false, pid);
+      onreturn = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
 
       /* If we couldn't open the process then we don't have rights to it and should
 	 make a copy of the shared memory area when it exists (it may not).  */
@@ -1308,14 +1488,13 @@ winpids::enum_processes (bool winpid)
 	}
 
       PSYSTEM_PROCESS_INFORMATION px = procs;
-      char *&pxc = (char *&)px;
       while (1)
 	{
 	  if (px->UniqueProcessId)
 	    add (nelem, true, (DWORD) (uintptr_t) px->UniqueProcessId);
 	  if (!px->NextEntryOffset)
 	    break;
-	  pxc += px->NextEntryOffset;
+          px = (PSYSTEM_PROCESS_INFORMATION) ((char *) px + px->NextEntryOffset);
 	}
     }
   return nelem;

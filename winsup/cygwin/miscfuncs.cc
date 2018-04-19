@@ -1,8 +1,5 @@
 /* miscfuncs.cc: misc funcs that don't belong anywhere else
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -11,168 +8,13 @@ details. */
 
 #include "winsup.h"
 #include "miscfuncs.h"
+#include <ntsecapi.h>
 #include <sys/uio.h>
-#include <assert.h>
-#include <alloca.h>
-#include <limits.h>
 #include <sys/param.h>
-#include <wchar.h>
-#include "cygtls.h"
 #include "ntdll.h"
 #include "path.h"
 #include "fhandler.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "pinfo.h"
 #include "exception.h"
-#include "sigproc.h"
-
-long tls_ix = -1;
-
-const unsigned char case_folded_lower[] = {
-   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
-  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,
-  32, '!', '"', '#', '$', '%', '&',  39, '(', ')', '*', '+', ',', '-', '.', '/',
- '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
- '@', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
- 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '[',  92, ']', '^', '_',
- '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
- 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', 127,
- 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
- 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
- 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
- 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191,
- 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207,
- 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223,
- 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239,
- 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
-};
-
-const unsigned char case_folded_upper[] = {
-   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
-  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,
-  32, '!', '"', '#', '$', '%', '&',  39, '(', ')', '*', '+', ',', '-', '.', '/',
- '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
- '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
- 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[',  92, ']', '^', '_',
- '`', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
- 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '{', '|', '}', '~', 127,
- 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143,
- 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
- 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
- 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191,
- 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207,
- 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223,
- 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239,
- 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
-};
-
-const char isalpha_array[] = {
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,
-0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,   0,   0,   0,   0,   0,
-   0,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,
-0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0
-};
-
-extern "C" int __stdcall
-cygwin_wcscasecmp (const wchar_t *ws, const wchar_t *wt)
-{
-  UNICODE_STRING us, ut;
-
-  RtlInitUnicodeString (&us, ws);
-  RtlInitUnicodeString (&ut, wt);
-  return RtlCompareUnicodeString (&us, &ut, TRUE);
-}
-
-extern "C" int __stdcall
-cygwin_wcsncasecmp (const wchar_t  *ws, const wchar_t *wt, size_t n)
-{
-  UNICODE_STRING us, ut;
-  size_t ls = 0, lt = 0;
-
-  while (ws[ls] && ls < n)
-    ++ls;
-  RtlInitCountedUnicodeString (&us, ws, ls * sizeof (WCHAR));
-  while (wt[lt] && lt < n)
-    ++lt;
-  RtlInitCountedUnicodeString (&ut, wt, lt * sizeof (WCHAR));
-  return RtlCompareUnicodeString (&us, &ut, TRUE);
-}
-
-extern "C" int __stdcall
-cygwin_strcasecmp (const char *cs, const char *ct)
-{
-  UNICODE_STRING us, ut;
-  ULONG len;
-
-  len = (strlen (cs) + 1) * sizeof (WCHAR);
-  RtlInitEmptyUnicodeString (&us, (PWCHAR) alloca (len), len);
-  us.Length = sys_mbstowcs (us.Buffer, us.MaximumLength, cs) * sizeof (WCHAR);
-  len = (strlen (ct) + 1) * sizeof (WCHAR);
-  RtlInitEmptyUnicodeString (&ut, (PWCHAR) alloca (len), len);
-  ut.Length = sys_mbstowcs (ut.Buffer, ut.MaximumLength, ct) * sizeof (WCHAR);
-  return RtlCompareUnicodeString (&us, &ut, TRUE);
-}
-
-extern "C" int __stdcall
-cygwin_strncasecmp (const char *cs, const char *ct, size_t n)
-{
-  UNICODE_STRING us, ut;
-  ULONG len;
-  size_t ls = 0, lt = 0;
-
-  while (cs[ls] && ls < n)
-    ++ls;
-  len = (ls + 1) * sizeof (WCHAR);
-  RtlInitEmptyUnicodeString (&us, (PWCHAR) alloca (len), len);
-  us.Length = sys_mbstowcs (us.Buffer, ls + 1, cs, ls) * sizeof (WCHAR);
-  while (ct[lt] && lt < n)
-    ++lt;
-  len = (lt + 1) * sizeof (WCHAR);
-  RtlInitEmptyUnicodeString (&ut, (PWCHAR) alloca (len), len);
-  ut.Length = sys_mbstowcs (ut.Buffer, lt + 1, ct, lt)  * sizeof (WCHAR);
-  return RtlCompareUnicodeString (&us, &ut, TRUE);
-}
-
-extern "C" char * __stdcall
-cygwin_strlwr (char *string)
-{
-  UNICODE_STRING us;
-  size_t len = (strlen (string) + 1) * sizeof (WCHAR);
-
-  us.MaximumLength = len; us.Buffer = (PWCHAR) alloca (len);
-  us.Length = sys_mbstowcs (us.Buffer, len, string) * sizeof (WCHAR)
-	      - sizeof (WCHAR);
-  RtlDowncaseUnicodeString (&us, &us, FALSE);
-  sys_wcstombs (string, len / sizeof (WCHAR), us.Buffer);
-  return string;
-}
-
-extern "C" char * __stdcall
-cygwin_strupr (char *string)
-{
-  UNICODE_STRING us;
-  size_t len = (strlen (string) + 1) * sizeof (WCHAR);
-
-  us.MaximumLength = len; us.Buffer = (PWCHAR) alloca (len);
-  us.Length = sys_mbstowcs (us.Buffer, len, string) * sizeof (WCHAR)
-	      - sizeof (WCHAR);
-  RtlUpcaseUnicodeString (&us, &us, FALSE);
-  sys_wcstombs (string, len / sizeof (WCHAR), us.Buffer);
-  return string;
-}
 
 int __reg2
 check_invalid_virtual_addr (const void *s, unsigned sz)
@@ -202,35 +44,39 @@ check_iovec (const struct iovec *iov, int iovcnt, bool forwrite)
       return -1;
     }
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  size_t tot = 0;
-
-  while (iovcnt != 0)
+  __try
     {
-      if (iov->iov_len > SSIZE_MAX || (tot += iov->iov_len) > SSIZE_MAX)
+
+      size_t tot = 0;
+
+      while (iovcnt > 0)
 	{
-	  set_errno (EINVAL);
-	  return -1;
+	  if (iov->iov_len > SSIZE_MAX || (tot += iov->iov_len) > SSIZE_MAX)
+	    {
+	      set_errno (EINVAL);
+	      __leave;
+	    }
+
+	  volatile char *p = ((char *) iov->iov_base) + iov->iov_len - 1;
+	  if (!iov->iov_len)
+	    /* nothing to do */;
+	  else if (!forwrite)
+	    *p  = dummytest (p);
+	  else
+	    dummytest (p);
+
+	  iov++;
+	  iovcnt--;
 	}
 
-      volatile char *p = ((char *) iov->iov_base) + iov->iov_len - 1;
-      if (!iov->iov_len)
-	/* nothing to do */;
-      else if (!forwrite)
-	*p  = dummytest (p);
-      else
-	dummytest (p);
+      if (tot <= SSIZE_MAX)
+	return (ssize_t) tot;
 
-      iov++;
-      iovcnt--;
+      set_errno (EINVAL);
     }
-
-  assert (tot <= SSIZE_MAX);
-
-  return (ssize_t) tot;
+  __except (EFAULT)
+  __endtry
+  return -1;
 }
 
 /* Try hard to schedule another thread.  
@@ -239,17 +85,18 @@ check_iovec (const struct iovec *iov, int iovcnt, bool forwrite)
 void
 yield ()
 {
-  int prio = GetThreadPriority (GetCurrentThread ());
-  SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_IDLE);
-  /* MSDN implies that SleepEx will force scheduling of other threads.
+  /* MSDN implies that Sleep will force scheduling of other threads.
      Unlike SwitchToThread() the documentation does not mention other
      cpus so, presumably (hah!), this + using a lower priority will
      stall this thread temporarily and cause another to run.
      (stackoverflow and others seem to confirm that setting this thread
      to a lower priority and calling Sleep with a 0 paramenter will
-     have this desired effect)  */
+     have this desired effect)
+
+     CV 2017-03-08: Drop lowering the priority.  It leads to potential
+		    starvation and it should not be necessary anymore
+		    since Server 2003.  See the MSDN Sleep man page. */
   Sleep (0L);
-  SetThreadPriority (GetCurrentThread (), prio);
 }
 
 /* Get a default value for the nice factor.  When changing these values,
@@ -460,70 +307,40 @@ NT_readline::gets ()
     }
 }
 
-/* backslashify: Convert all forward slashes in src path to back slashes
-   in dst path.  Add a trailing slash to dst when trailing_slash_p arg
-   is set to 1. */
-
-void
-backslashify (const char *src, char *dst, bool trailing_slash_p)
-{
-  const char *start = src;
-
-  while (*src)
-    {
-      if (*src == '/')
-	*dst++ = '\\';
-      else
-	*dst++ = *src;
-      ++src;
-    }
-  if (trailing_slash_p
-      && src > start
-      && !isdirsep (src[-1]))
-    *dst++ = '\\';
-  *dst++ = 0;
-}
-
-/* slashify: Convert all back slashes in src path to forward slashes
-   in dst path.  Add a trailing slash to dst when trailing_slash_p arg
-   is set to 1. */
-
-void
-slashify (const char *src, char *dst, bool trailing_slash_p)
-{
-  const char *start = src;
-
-  while (*src)
-    {
-      if (*src == '\\')
-	*dst++ = '/';
-      else
-	*dst++ = *src;
-      ++src;
-    }
-  if (trailing_slash_p
-      && src > start
-      && !isdirsep (src[-1]))
-    *dst++ = '/';
-  *dst++ = 0;
-}
-
 /* Return an address from the import jmp table of main program.  */
 void * __reg1
 __import_address (void *imp)
 {
-  if (*((uint16_t *) imp) != 0x25ff)
-    return NULL;
-  myfault efault;
-  if (efault.faulted ())
-    return NULL;
-  const char *ptr = (const char *) imp;
+  __try
+    {
+      if (*((uint16_t *) imp) == 0x25ff)
+	{
+	  const char *ptr = (const char *) imp;
 #ifdef __x86_64__
-  const uintptr_t *jmpto = (uintptr_t *) (ptr + 6 + *(int32_t *)(ptr + 2));
+	  const uintptr_t *jmpto = (uintptr_t *)
+				   (ptr + 6 + *(int32_t *)(ptr + 2));
 #else
-  const uintptr_t *jmpto = (uintptr_t *) *((uintptr_t *) (ptr + 2));
+	  const uintptr_t *jmpto = (uintptr_t *) *((uintptr_t *) (ptr + 2));
 #endif
-  return (void *) *jmpto;
+	  return (void *) *jmpto;
+	}
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return NULL;
+}
+
+/* Helper function to generate the correct caller address.  For external
+   calls, the return address on the stack is _sigbe.  In that case the
+   actual caller return address is on the cygtls stack.  Use this function
+   via the macro caller_return_address. */
+extern "C" void _sigbe ();
+
+void *
+__caller_return_address (void *builtin_ret_addr)
+{
+  return builtin_ret_addr == &_sigbe
+	 ? (void *) _my_tls.retaddr () : builtin_ret_addr;
 }
 
 /* CygwinCreateThread.
@@ -532,31 +349,29 @@ __import_address (void *imp)
    parameters we don't use and instead to add parameters we need to make
    the function pthreads compatible. */
 
-struct thread_wrapper_arg
+struct pthread_wrapper_arg
 {
   LPTHREAD_START_ROUTINE func;
   PVOID arg;
   PBYTE stackaddr;
   PBYTE stackbase;
   PBYTE stacklimit;
+  ULONG guardsize;
 };
 
-static DWORD WINAPI
-thread_wrapper (PVOID arg)
+DWORD WINAPI
+pthread_wrapper (PVOID arg)
 {
   /* Just plain paranoia. */
   if (!arg)
     return ERROR_INVALID_PARAMETER;
 
-  /* The process is now threaded.  Note the fact for later usage. */
+  /* The process is now threaded.  Note for later usage by arc4random. */
   __isthreaded = 1;
 
   /* Fetch thread wrapper info and free from cygheap. */
-  thread_wrapper_arg wrapper_arg = *(thread_wrapper_arg *) arg;
+  pthread_wrapper_arg wrapper_arg = *(pthread_wrapper_arg *) arg;
   cfree (arg);
-
-  /* Remove _cygtls from this stack since it won't be used anymore. */
-  _my_tls.remove (0);
 
   /* Set stack values in TEB */
   PTEB teb = NtCurrentTeb ();
@@ -574,11 +389,17 @@ thread_wrapper (PVOID arg)
      The below assembler code will release the OS stack after switching to our
      new stack. */
   wrapper_arg.stackaddr = dealloc_addr;
-
+  /* Set thread stack guarantee matching the guardsize.
+     Note that the guardsize is one page bigger than the guarantee. */
+  if (wrapper_arg.guardsize > wincap.def_guard_page_size ())
+    {
+      wrapper_arg.guardsize -= wincap.page_size ();
+      SetThreadStackGuarantee (&wrapper_arg.guardsize);
+    }
   /* Initialize new _cygtls. */
   _my_tls.init_thread (wrapper_arg.stackbase - CYGTLS_PADSIZE,
 		       (DWORD (*)(void*, void*)) wrapper_arg.func);
-#ifndef __x86_64__
+#ifdef __i386__
   /* Copy exception list over to new stack.  I'm not quite sure how the
      exception list is extended by Windows itself.  What's clear is that it
      always grows downwards and that it starts right at the stackbase.
@@ -614,7 +435,7 @@ thread_wrapper (PVOID arg)
 #endif
 #ifdef __x86_64__
   __asm__ ("\n\
-	   movq  %[WRAPPER_ARG], %%rbx	# Load &wrapper_arg into rbx	\n\
+	   leaq  %[WRAPPER_ARG], %%rbx	# Load &wrapper_arg into rbx	\n\
 	   movq  (%%rbx), %%r12		# Load thread func into r12	\n\
 	   movq  8(%%rbx), %%r13	# Load thread arg into r13	\n\
 	   movq  16(%%rbx), %%rcx	# Load stackaddr into rcx	\n\
@@ -634,11 +455,11 @@ thread_wrapper (PVOID arg)
 	   # register r13 and then just call the function.		\n\
 	   movq  %%r13, %%rcx		# Move thread arg to 1st arg reg\n\
 	   call  *%%r12			# Call thread func		\n"
-	   : : [WRAPPER_ARG] "r" (&wrapper_arg),
+	   : : [WRAPPER_ARG] "o" (wrapper_arg),
 	       [CYGTLS] "i" (CYGTLS_PADSIZE));
 #else
   __asm__ ("\n\
-	   movl  %[WRAPPER_ARG], %%ebx	# Load &wrapper_arg into ebx	\n\
+	   leal  %[WRAPPER_ARG], %%ebx	# Load &wrapper_arg into ebx	\n\
 	   movl  (%%ebx), %%eax		# Load thread func into eax	\n\
 	   movl  4(%%ebx), %%ecx	# Load thread arg into ecx	\n\
 	   movl  8(%%ebx), %%edx	# Load stackaddr into edx	\n\
@@ -665,11 +486,12 @@ thread_wrapper (PVOID arg)
 	   # stack in the expected spot.				\n\
 	   popl  %%eax			# Pop thread_func address	\n\
 	   call  *%%eax			# Call thread func		\n"
-	   : : [WRAPPER_ARG] "r" (&wrapper_arg),
+	   : : [WRAPPER_ARG] "o" (wrapper_arg),
 	       [CYGTLS] "i" (CYGTLS_PADSIZE));
 #endif
-  /* Never return from here. */
-  ExitThread (0);
+  /* pthread::thread_init_wrapper calls pthread::exit, which
+     in turn calls ExitThread, so we should never arrive here. */
+  api_fatal ("Dumb thinko in pthread handling.  Whip the developer.");
 }
 
 #ifdef __x86_64__
@@ -728,11 +550,56 @@ public:
     /* If we got an address, remember it for the next allocation attempt. */
     if (real_stackaddr)
       current = (UINT_PTR) real_stackaddr;
+    else
+      set_errno (EAGAIN);
     return real_stackaddr;
   }
 };
 
 thread_allocator thr_alloc NO_COPY;
+
+/* Just set up a system-like main thread stack from the pthread stack area
+   maintained by the thr_alloc class.  See the description in the x86_64-only
+   code in _dll_crt0 to understand why we have to do this. */
+PVOID
+create_new_main_thread_stack (PVOID &allocationbase, SIZE_T parent_commitsize)
+{
+  PIMAGE_DOS_HEADER dosheader;
+  PIMAGE_NT_HEADERS ntheader;
+  SIZE_T stacksize;
+  ULONG guardsize;
+  SIZE_T commitsize;
+  PBYTE stacklimit;
+
+  dosheader = (PIMAGE_DOS_HEADER) GetModuleHandle (NULL);
+  ntheader = (PIMAGE_NT_HEADERS)
+	     ((PBYTE) dosheader + dosheader->e_lfanew);
+  stacksize = ntheader->OptionalHeader.SizeOfStackReserve;
+  stacksize = roundup2 (stacksize, wincap.allocation_granularity ());
+
+  allocationbase
+	= thr_alloc.alloc (ntheader->OptionalHeader.SizeOfStackReserve);
+  guardsize = wincap.def_guard_page_size ();
+  if (parent_commitsize)
+    commitsize = (SIZE_T) parent_commitsize;
+  else
+    commitsize = ntheader->OptionalHeader.SizeOfStackCommit;
+  commitsize = roundup2 (commitsize, wincap.page_size ());
+  if (commitsize > stacksize - guardsize - wincap.page_size ())
+    commitsize = stacksize - guardsize - wincap.page_size ();
+  stacklimit = (PBYTE) allocationbase + stacksize - commitsize - guardsize;
+  /* Setup guardpage. */
+  if (!VirtualAlloc (stacklimit, guardsize,
+		     MEM_COMMIT, PAGE_READWRITE | PAGE_GUARD))
+    return NULL;
+  /* Setup committed region. */
+  stacklimit += guardsize;
+  if (!VirtualAlloc (stacklimit, commitsize, MEM_COMMIT, PAGE_READWRITE))
+    return NULL;
+  NtCurrentTeb()->Tib.StackBase = ((PBYTE) allocationbase + stacksize);
+  NtCurrentTeb()->Tib.StackLimit = stacklimit;
+  return ((PBYTE) allocationbase + stacksize - 16);
+}
 #endif
 
 HANDLE WINAPI
@@ -743,10 +610,10 @@ CygwinCreateThread (LPTHREAD_START_ROUTINE thread_func, PVOID thread_arg,
   PVOID real_stackaddr = NULL;
   ULONG real_stacksize = 0;
   ULONG real_guardsize = 0;
-  thread_wrapper_arg *wrapper_arg;
+  pthread_wrapper_arg *wrapper_arg;
   HANDLE thread = NULL;
 
-  wrapper_arg = (thread_wrapper_arg *) ccalloc (HEAP_STR, 1,
+  wrapper_arg = (pthread_wrapper_arg *) ccalloc (HEAP_STR, 1,
 						sizeof *wrapper_arg);
   if (!wrapper_arg)
     {
@@ -758,7 +625,8 @@ CygwinCreateThread (LPTHREAD_START_ROUTINE thread_func, PVOID thread_arg,
 
   if (stackaddr)
     {
-      /* If the application provided the stack, just use it. */
+      /* If the application provided the stack, just use it.  There won't
+	 be any stack overflow handling! */
       wrapper_arg->stackaddr = (PBYTE) stackaddr;
       wrapper_arg->stackbase = (PBYTE) stackaddr + stacksize;
     }
@@ -771,10 +639,8 @@ CygwinCreateThread (LPTHREAD_START_ROUTINE thread_func, PVOID thread_arg,
       real_guardsize = roundup2 (guardsize, wincap.page_size ());
       /* Add the guardsize to the stacksize */
       real_stacksize += real_guardsize;
-      /* If we use the default Windows guardpage method, we have to take
-	 the 2 pages dead zone into account. */
-      if (real_guardsize == wincap.page_size ())
-	  real_stacksize += 2 * wincap.page_size ();
+      /* Take dead zone page into account, which always stays uncommited. */
+      real_stacksize += wincap.page_size ();
       /* Now roundup the result to the next allocation boundary. */
       real_stacksize = roundup2 (real_stacksize,
 				 wincap.allocation_granularity ());
@@ -792,53 +658,49 @@ CygwinCreateThread (LPTHREAD_START_ROUTINE thread_func, PVOID thread_arg,
 #endif
       if (!real_stackaddr)
 	return NULL;
-      /* Set up committed region.  Two cases: */
-      if (real_guardsize != wincap.page_size ())
+      /* Set up committed region.  We set up the stack like the OS does,
+	 with a reserved region, the guard pages, and a commited region.
+	 We commit the stack commit size from the executable header, but
+	 at least PTHREAD_STACK_MIN (64K). */
+      static ULONG exe_commitsize;
+
+      if (!exe_commitsize)
 	{
-	  /* If guardsize is set to something other than the page size, we
-	     commit the entire stack and, if guardsize is > 0, we set up a
-	     POSIX guardpage.  We don't set up a Windows guardpage. */
-	  if (!VirtualAlloc (real_stackaddr, real_guardsize, MEM_COMMIT,
-			     PAGE_NOACCESS))
-	    goto err;
-	  real_stacklimit = (PBYTE) real_stackaddr + real_guardsize;
-	  if (!VirtualAlloc (real_stacklimit, real_stacksize - real_guardsize,
-			     MEM_COMMIT, PAGE_READWRITE))
-	    goto err;
+	  PIMAGE_DOS_HEADER dosheader;
+	  PIMAGE_NT_HEADERS ntheader;
+
+	  dosheader = (PIMAGE_DOS_HEADER) GetModuleHandle (NULL);
+	  ntheader = (PIMAGE_NT_HEADERS)
+		     ((PBYTE) dosheader + dosheader->e_lfanew);
+	  exe_commitsize = ntheader->OptionalHeader.SizeOfStackCommit;
+	  exe_commitsize = roundup2 (exe_commitsize, wincap.page_size ());
 	}
-      else
-	{
-	  /* If guardsize is exactly the page_size, we can assume that the
-	     application will behave Windows conformant in terms of stack usage.
-	     We can especially assume that it never allocates more than one
-	     page at a time (alloca/_chkstk).  Therefore, this is the default
-	     case which allows a Windows compatible stack setup with a
-	     reserved region, a guard page, and a commited region.  We don't
-	     need to set up a POSIX guardpage since Windows already handles
-	     stack overflow: Trying to extend the stack into the last three
-	     pages of the stack results in a SEGV.
-	     We always commit 64K here, starting with the guardpage. */
-	  real_stacklimit = (PBYTE) real_stackaddr + real_stacksize
-				- wincap.allocation_granularity ();
-	  if (!VirtualAlloc (real_stacklimit, wincap.page_size (), MEM_COMMIT,
-			     PAGE_READWRITE | PAGE_GUARD))
-	    goto err;
-	  real_stacklimit += wincap.page_size ();
-	  if (!VirtualAlloc (real_stacklimit, wincap.allocation_granularity ()
-					 - wincap.page_size (), MEM_COMMIT,
-			     PAGE_READWRITE))
-	    goto err;
-      	}
+      ULONG commitsize = exe_commitsize;
+      if (commitsize > real_stacksize - real_guardsize - wincap.page_size ())
+	commitsize = real_stacksize - real_guardsize - wincap.page_size ();
+      else if (commitsize < PTHREAD_STACK_MIN)
+	commitsize = PTHREAD_STACK_MIN;
+      real_stacklimit = (PBYTE) real_stackaddr + real_stacksize
+			- commitsize - real_guardsize;
+      if (!VirtualAlloc (real_stacklimit, real_guardsize, MEM_COMMIT,
+			 PAGE_READWRITE | PAGE_GUARD))
+	goto err;
+      real_stacklimit += real_guardsize;
+      if (!VirtualAlloc (real_stacklimit, commitsize, MEM_COMMIT,
+			 PAGE_READWRITE))
+	goto err;
+
       wrapper_arg->stackaddr = (PBYTE) real_stackaddr;
       wrapper_arg->stackbase = (PBYTE) real_stackaddr + real_stacksize;
       wrapper_arg->stacklimit = real_stacklimit;
+      wrapper_arg->guardsize = real_guardsize;
     }
   /* Use the STACK_SIZE_PARAM_IS_A_RESERVATION parameter so only the
      minimum size for a thread stack is reserved by the OS.  Note that we
      reserve a 256K stack, not 64K, otherwise the thread creation might
      crash the process due to a stack overflow. */
   thread = CreateThread (&sec_none_nih, 4 * PTHREAD_STACK_MIN,
-			 thread_wrapper, wrapper_arg,
+			 pthread_wrapper, wrapper_arg,
 			 creation_flags | STACK_SIZE_PARAM_IS_A_RESERVATION,
 			 thread_id);
 
@@ -855,23 +717,245 @@ err:
 }
 
 #ifdef __x86_64__
-// TODO: The equivalent newlib functions only work for SYSV ABI so far.
-#undef RtlFillMemory
-#undef RtlCopyMemory
-extern "C" void NTAPI RtlFillMemory (PVOID, SIZE_T, BYTE);
-extern "C" void NTAPI RtlCopyMemory (PVOID, const VOID *, SIZE_T);
+/* These functions are almost verbatim FreeBSD code (even if the header of
+   one file mentiones NetBSD), just wrapped in the minimum required code to
+   make them work with the MS AMD64 ABI.
+   See FreeBSD src/lib/libc/amd64/string/memset.S
+   and FreeBSD src/lib/libc/amd64/string/bcopy.S */
 
-extern "C" void *
-memset (void *s, int c, size_t n)
-{
-  RtlFillMemory (s, n, c);
-  return s;
-}
+asm volatile ("								\n\
+/*									\n\
+ * Written by J.T. Conklin <jtc@NetBSD.org>.				\n\
+ * Public domain.							\n\
+ * Adapted for NetBSD/x86_64 by						\n\
+ * Frank van der Linden <fvdl@wasabisystems.com>			\n\
+ */									\n\
+									\n\
+	.globl	memset							\n\
+	.seh_proc memset						\n\
+memset:									\n\
+	movq	%rsi,8(%rsp)						\n\
+	movq	%rdi,16(%rsp)						\n\
+	.seh_endprologue						\n\
+	movq	%rcx,%rdi						\n\
+	movq	%rdx,%rsi						\n\
+	movq	%r8,%rdx						\n\
+									\n\
+	movq    %rsi,%rax						\n\
+	andq    $0xff,%rax						\n\
+	movq    %rdx,%rcx						\n\
+	movq    %rdi,%r11						\n\
+									\n\
+	cld			/* set fill direction forward */	\n\
+									\n\
+	/* if the string is too short, it's really not worth the	\n\
+	 * overhead of aligning to word boundries, etc.  So we jump to	\n\
+	 * a plain unaligned set. */					\n\
+	cmpq    $0x0f,%rcx						\n\
+	jle     L1							\n\
+									\n\
+	movb    %al,%ah		/* copy char to all bytes in word */\n\
+	movl    %eax,%edx						\n\
+	sall    $16,%eax						\n\
+	orl     %edx,%eax						\n\
+									\n\
+	movl    %eax,%edx						\n\
+	salq    $32,%rax						\n\
+	orq     %rdx,%rax						\n\
+									\n\
+	movq    %rdi,%rdx	/* compute misalignment */		\n\
+	negq    %rdx							\n\
+	andq    $7,%rdx							\n\
+	movq    %rcx,%r8						\n\
+	subq    %rdx,%r8						\n\
+									\n\
+	movq    %rdx,%rcx	/* set until word aligned */		\n\
+	rep								\n\
+	stosb								\n\
+									\n\
+	movq    %r8,%rcx						\n\
+	shrq    $3,%rcx		/* set by words */			\n\
+	rep								\n\
+	stosq								\n\
+									\n\
+	movq    %r8,%rcx	/* set remainder by bytes */		\n\
+	andq    $7,%rcx							\n\
+L1:     rep								\n\
+	stosb								\n\
+	movq    %r11,%rax						\n\
+									\n\
+	movq	8(%rsp),%rsi						\n\
+	movq	16(%rsp),%rdi						\n\
+	ret								\n\
+	.seh_endproc							\n\
+");
 
-extern "C" void *
-memcpy(void *__restrict dest, const void *__restrict src, size_t n)
-{
-  RtlCopyMemory (dest, src, n);
-  return dest;
-}
+asm volatile ("								\n\
+/*-									\n\
+ * Copyright (c) 1990 The Regents of the University of California.	\n\
+ * All rights reserved.							\n\
+ *									\n\
+ * This code is derived from locore.s.					\n\
+ *									\n\
+ * Redistribution and use in source and binary forms, with or without	\n\
+ * modification, are permitted provided that the following conditions	\n\
+ * are met:								\n\
+ * 1. Redistributions of source code must retain the above copyright	\n\
+ *    notice, this list of conditions and the following disclaimer.	\n\
+ * 2. Redistributions in binary form must reproduce the above copyright	\n\
+ *    notice, this list of conditions and the following disclaimer in	\n\
+ *    the documentation and/or other materials provided with the	\n\
+ *    distribution.							\n\
+ * 3. Neither the name of the University nor the names of its		\n\
+ *    contributors may be used to endorse or promote products derived	\n\
+ *    from this software without specific prior written permission.	\n\
+ *									\n\
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS''	\n\
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,\n\
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A		\n\
+ * PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR	\n\
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,\n\
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,	\n\
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR	\n\
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY	\n\
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT		\n\
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE	\n\
+ * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH	\n\
+ * DAMAGE.								\n\
+ */									\n\
+									\n\
+	.seh_proc _memcpy						\n\
+_memcpy:								\n\
+	movq	%rsi,8(%rsp)						\n\
+	movq	%rdi,16(%rsp)						\n\
+	.seh_endprologue						\n\
+	movq	%rcx,%rdi						\n\
+	movq	%rdx,%rsi						\n\
+	movq	%r8,%rdx						\n\
+									\n\
+	movq    %rdx,%rcx						\n\
+	movq    %rdi,%r8						\n\
+	subq    %rsi,%r8						\n\
+	cmpq    %rcx,%r8	/* overlapping? */			\n\
+	jb      1f							\n\
+	cld                     /* nope, copy forwards. */		\n\
+	shrq    $3,%rcx		/* copy by words */			\n\
+	rep movsq							\n\
+	movq    %rdx,%rcx						\n\
+	andq    $7,%rcx		/* any bytes left? */			\n\
+	rep movsb							\n\
+	jmp	2f							\n\
+1:									\n\
+	addq    %rcx,%rdi	/* copy backwards. */			\n\
+	addq    %rcx,%rsi						\n\
+	std								\n\
+	andq    $7,%rcx		/* any fractional bytes? */		\n\
+	decq    %rdi							\n\
+	decq    %rsi							\n\
+	rep movsb							\n\
+	movq    %rdx,%rcx	/* copy remainder by words */		\n\
+	shrq    $3,%rcx							\n\
+	subq    $7,%rsi							\n\
+	subq    $7,%rdi							\n\
+	rep movsq							\n\
+	cld								\n\
+2:									\n\
+	movq	8(%rsp),%rsi						\n\
+	movq	16(%rsp),%rdi						\n\
+	ret								\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  memmove							\n\
+	.seh_proc memmove						\n\
+memmove:								\n\
+	.seh_endprologue						\n\
+	movq	%rcx,%rax	/* return dst */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  memcpy							\n\
+	.seh_proc memcpy						\n\
+memcpy:									\n\
+	.seh_endprologue						\n\
+	movq	%rcx,%rax	/* return dst */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  mempcpy							\n\
+	.seh_proc mempcpy						\n\
+mempcpy:								\n\
+	.seh_endprologue						\n\
+	movq	%rcx,%rax	/* return dst  */			\n\
+	addq	%r8,%rax	/*         + n */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  wmemmove						\n\
+	.seh_proc wmemmove						\n\
+wmemmove:								\n\
+	.seh_endprologue						\n\
+	shlq	$1,%r8		/* cnt * sizeof (wchar_t) */		\n\
+	movq	%rcx,%rax	/* return dst */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  wmemcpy							\n\
+	.seh_proc wmemcpy						\n\
+wmemcpy:								\n\
+	.seh_endprologue						\n\
+	shlq	$1,%r8		/* cnt * sizeof (wchar_t) */		\n\
+	movq	%rcx,%rax	/* return dst */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+									\n\
+	.globl  wmempcpy						\n\
+	.seh_proc wmempcpy						\n\
+wmempcpy:								\n\
+	.seh_endprologue						\n\
+	shlq	$1,%r8		/* cnt * sizeof (wchar_t) */		\n\
+	movq	%rcx,%rax	/* return dst */			\n\
+	addq	%r8,%rax	/*         + n */			\n\
+	jmp	_memcpy							\n\
+	.seh_endproc							\n\
+");
+
 #endif
+
+/* Signal the thread name to any attached debugger
+
+   (See "How to: Set a Thread Name in Native Code"
+   https://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx) */
+
+#define MS_VC_EXCEPTION 0x406D1388
+
+void
+SetThreadName(DWORD dwThreadID, const char* threadName)
+{
+  if (!IsDebuggerPresent ())
+    return;
+
+  ULONG_PTR info[] =
+    {
+      0x1000,                 /* type, must be 0x1000 */
+      (ULONG_PTR) threadName, /* pointer to threadname */
+      dwThreadID,             /* thread ID (+ flags on x86_64) */
+#ifdef _X86_
+      0,                      /* flags, must be zero */
+#endif
+    };
+
+#ifdef _X86_
+  /* On x86, for __try/__except to work, we must ensure our exception handler is
+     installed, which may not be the case if this is being called during early
+     initialization. */
+  exception protect;
+#endif
+
+  __try
+    {
+      RaiseException (MS_VC_EXCEPTION, 0, sizeof (info) / sizeof (ULONG_PTR),
+		      info);
+    }
+  __except (NO_ERROR)
+  __endtry
+}

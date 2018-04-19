@@ -21,19 +21,10 @@ INDEX
 INDEX
    asinf
 
-ANSI_SYNOPSIS
+SYNOPSIS
         #include <math.h>
         double asin(double <[x]>);
         float asinf(float <[x]>);
-
-TRAD_SYNOPSIS
-        #include <math.h>
-        double asin(<[x]>)
-        double <[x]>;
-
-        float asinf(<[x]>)
-        float <[x]>;
-
 
 DESCRIPTION
 
@@ -59,7 +50,8 @@ return NaN (not a number), set the global variable <<errno>> to
 
 You can change this error treatment using <<matherr>>.
 
-QUICKREF ANSI SVID POSIX RENTRANT
+QUICKREF
+ ansi svid posix rentrant
  asin	 y,y,y,m
  asinf   n,n,n,m
 

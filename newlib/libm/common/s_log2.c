@@ -14,13 +14,13 @@
 
 /*
 FUNCTION
-	<<log2>>, <<log2f>>--base 2 logarithm
+	<<log2>>, <<log2f>>---base 2 logarithm
 INDEX
 	log2
 INDEX
 	log2f
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <math.h>
 	double log2(double <[x]>);
 	float log2f(float <[x]>);

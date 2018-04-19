@@ -1,8 +1,5 @@
 /* shm.cc: XSI IPC interface for Cygwin.
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2012, 2013, 2014
-   Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -20,6 +17,10 @@ details. */
 #include "cygtls.h"
 #include "sync.h"
 #include "ntdll.h"
+
+/* __getpagesize is only available from libcygwin.a */
+#undef SHMLBA
+#define SHMLBA (wincap.allocation_granularity ())
 
 /*
  * client_request_shm Constructors
@@ -242,8 +243,6 @@ shmat (int shmid, const void *shmaddr, int shmflg)
       delete sph_entry;
       set_errno (request.error_code ());
       --ssh_entry->ref_count;
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
       return (void *) -1;
     }
   sph_entry->ptr = ptr;
@@ -260,41 +259,43 @@ shmctl (int shmid, int cmd, struct shmid_ds *buf)
 {
   syscall_printf ("shmctl (shmid = %d, cmd = %d, buf = %p)",
 		  shmid, cmd, buf);
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  client_request_shm request (shmid, cmd, buf);
-  if (request.make_request () == -1 || request.retval () == -1)
+  __try
     {
-      syscall_printf ("-1 [%d] = shmctl ()", request.error_code ());
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return -1;
-    }
-  if (cmd == IPC_RMID)
-    {
-      /* Cleanup */
-      shm_shmid_list *ssh_entry, *ssh_next_entry;
-      SLIST_LOCK ();
-      SLIST_FOREACH_SAFE (ssh_entry, &ssh_list, ssh_next, ssh_next_entry)
+      client_request_shm request (shmid, cmd, buf);
+      if (request.make_request () == -1 || request.retval () == -1)
 	{
-	  if (ssh_entry->shmid == shmid)
-	    {
-	      /* Remove this entry from the list and close the handle
-		 only if it's not in use anymore. */
-	      if (ssh_entry->ref_count <= 0)
-		{
-		  SLIST_REMOVE (&ssh_list, ssh_entry, shm_shmid_list, ssh_next);
-		  CloseHandle (ssh_entry->hdl);
-		  delete ssh_entry;
-		}
-	      break;
-	    }
+	  syscall_printf ("-1 [%d] = shmctl ()", request.error_code ());
+	  set_errno (request.error_code ());
+	  __leave;
 	}
-      SLIST_UNLOCK ();
+      if (cmd == IPC_RMID)
+	{
+	  /* Cleanup */
+	  shm_shmid_list *ssh_entry, *ssh_next_entry;
+	  SLIST_LOCK ();
+	  SLIST_FOREACH_SAFE (ssh_entry, &ssh_list, ssh_next, ssh_next_entry)
+	    {
+	      if (ssh_entry->shmid == shmid)
+		{
+		  /* Remove this entry from the list and close the handle
+		     only if it's not in use anymore. */
+		  if (ssh_entry->ref_count <= 0)
+		    {
+		      SLIST_REMOVE (&ssh_list, ssh_entry, shm_shmid_list,
+				    ssh_next);
+		      CloseHandle (ssh_entry->hdl);
+		      delete ssh_entry;
+		    }
+		  break;
+		}
+	    }
+	  SLIST_UNLOCK ();
+	}
+      return request.retval ();
     }
-  return request.retval ();
+  __except (EFAULT) {}
+  __endtry
+  return -1;
 }
 
 extern "C" int
@@ -306,8 +307,6 @@ shmdt (const void *shmaddr)
     {
       syscall_printf ("-1 [%d] = shmdt ()", request.error_code ());
       set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
       return -1;
     }
   shm_attached_list *sph_entry, *sph_next_entry;
@@ -355,8 +354,6 @@ shmget (key_t key, size_t size, int shmflg)
       syscall_printf ("-1 [%d] = shmget ()", request.error_code ());
       delete ssh_new_entry;
       set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
       return -1;
     }
   int shmid = request.retval ();	/* Shared mem ID */
@@ -381,7 +378,14 @@ shmget (key_t key, size_t size, int shmflg)
      shmid and hdl value to the list. */
   ssh_new_entry->shmid = shmid;
   ssh_new_entry->hdl = hdl;
-  ssh_new_entry->size = size;
+  /* Fetch segment size from server.  If this is an already existing segment,
+     the size value in this shmget call is supposed to be meaningless. */
+  struct shmid_ds stat;
+  client_request_shm stat_req (shmid, IPC_STAT, &stat);
+  if (stat_req.make_request () == -1 || stat_req.retval () == -1)
+    ssh_new_entry->size = size;
+  else
+    ssh_new_entry->size = stat.shm_segsz;
   ssh_new_entry->ref_count = 0;
   SLIST_INSERT_HEAD (&ssh_list, ssh_new_entry, ssh_next);
   SLIST_UNLOCK ();

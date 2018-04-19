@@ -1,15 +1,15 @@
 /* fenv.h
 
-   Copyright 2010, 2011 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#ifndef _FENV_H_
-#define _FENV_H_
+#ifndef _FENV_H
+#define _FENV_H 1
+
+#include <sys/cdefs.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,13 +70,9 @@ typedef struct _fenv_t
    of exceptional floating-point arithmetic to provide auxiliary information.
     A floating-point control mode is a system variable whose value may be
    set by the user to affect the subsequent behavior of floating-point
-   arithmetic.  */
+   arithmetic. */
 
-typedef struct _fexcept_t
-{
-  unsigned short _fpu_exceptions;
-  unsigned short _sse_exceptions;
-} fexcept_t;
+typedef __uint32_t fexcept_t;
 
 /*  The <fenv.h> header shall define the following constants if and only
    if the implementation supports the floating-point exception by means
@@ -133,14 +129,14 @@ extern const fenv_t *_fe_dfl_env;
    type "pointer to const-qualified fenv_t",may also be specified by
    the implementation.  */
 
-#ifdef _GNU_SOURCE
+#if __GNU_VISIBLE
 /*  If possible, the GNU C Library defines a macro FE_NOMASK_ENV which
    represents an environment where every exception raised causes a trap
    to occur. You can test for this macro using #ifdef. It is only defined
    if _GNU_SOURCE is defined.  */
 extern const fenv_t *_fe_nomask_env;
 #define FE_NOMASK_ENV (_fe_nomask_env)
-#endif /* _GNU_SOURCE */
+#endif /* __GNU_VISIBLE */
 
 
 /*  The following shall be declared as functions and may also be
@@ -174,4 +170,4 @@ extern int fegetexcept (void);
 }
 #endif
 
-#endif /* _FENV_H_ */
+#endif /* _FENV_H */

@@ -5,16 +5,9 @@ FUNCTION
 INDEX
 	memset
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <string.h>
 	void *memset(void *<[dst]>, int <[c]>, size_t <[length]>);
-
-TRAD_SYNOPSIS
-	#include <string.h>
-	void *memset(<[dst]>, <[c]>, <[length]>)
-	void *<[dst]>;
-	int <[c]>;
-	size_t <[length]>;
 
 DESCRIPTION
 	This function converts the argument <[c]> into an unsigned
@@ -40,17 +33,16 @@ QUICKREF
 #define UNALIGNED(X)   ((long)X & (LBLOCKSIZE - 1))
 #define TOO_SMALL(LEN) ((LEN) < LBLOCKSIZE)
 
-_PTR
+void *
 __inhibit_loop_to_libcall
-_DEFUN (memset, (m, c, n),
-	_PTR m _AND
-	int c _AND
+memset (void *m,
+	int c,
 	size_t n)
 {
   char *s = (char *) m;
 
 #if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__)
-  int i;
+  unsigned int i;
   unsigned long buffer;
   unsigned long *aligned_addr;
   unsigned int d = c & 0xff;	/* To avoid sign extension, copy C to an

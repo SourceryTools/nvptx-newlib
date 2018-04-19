@@ -1,8 +1,5 @@
 /* path.cc
 
-   Copyright 2001, 2002, 2003, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-   2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -166,7 +163,7 @@ is_symlink (HANDLE fh)
     }
   else /* magic == SYMLINK_MAGIC */
     {
-      if (!local.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM)
+      if (!(local.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM))
 	goto out; /* Not a Cygwin symlink. */
       char buf[sizeof (SYMLINK_COOKIE) - 1];
       SetFilePointer (fh, 0, 0, FILE_BEGIN);
@@ -223,10 +220,10 @@ readlink (HANDLE fh, char *path, int maxlen)
 	}
       if (*(PWCHAR) cp == 0xfeff)	/* BOM */
 	{
-	  len = wcstombs (NULL, (wchar_t *) (cp + 2), 0);
-	  if (len == (size_t) -1 || len + 1 > maxlen)
+	  size_t wlen = wcstombs (NULL, (wchar_t *) (cp + 2), 0);
+	  if (wlen == (size_t) -1 || wlen + 1 > maxlen)
 	    return false;
-	  wcstombs (path, (wchar_t *) (cp + 2), len + 1);
+	  wcstombs (path, (wchar_t *) (cp + 2), wlen + 1);
 	}
       else if (len + 1 > maxlen)
 	return false;
@@ -241,10 +238,10 @@ readlink (HANDLE fh, char *path, int maxlen)
       cp = buf + strlen (SYMLINK_COOKIE);
       if (*(PWCHAR) cp == 0xfeff)	/* BOM */
 	{
-	  len = wcstombs (NULL, (wchar_t *) (cp + 2), 0);
-	  if (len == (size_t) -1 || len + 1 > maxlen)
+	  size_t wlen = wcstombs (NULL, (wchar_t *) (cp + 2), 0);
+	  if (wlen == (size_t) -1 || wlen + 1 > maxlen)
 	    return false;
-	  wcstombs (path, (wchar_t *) (cp + 2), len + 1);
+	  wcstombs (path, (wchar_t *) (cp + 2), wlen + 1);
 	}
       else if (fi.nFileSizeLow - strlen (SYMLINK_COOKIE) > (unsigned) maxlen)
 	return false;
@@ -443,7 +440,12 @@ from_fstab_line (mnt_t *m, char *line, bool user)
 	    return false;
 	  }
       m->posix = strdup (posix_path);
-      unconvert_slashes (native_path);
+      /* Bind mounts require POSIX paths, otherwise the path is wrongly
+	 prefixed with the Cygwin root dir when trying to convert it to
+	 a Win32 path in mount(2). So don't convert slashes to backslashes
+         in this case. */
+      if (!(mount_flags & MOUNT_BIND))
+	unconvert_slashes (native_path);
       m->native = strdup (native_path);
       m->flags = mount_flags;
     }
@@ -670,7 +672,7 @@ read_mounts ()
 */
 
 static int
-path_prefix_p (const char *path1, const char *path2, int len1)
+path_prefix_p (const char *path1, const char *path2, size_t len1)
 {
   /* Handle case where PATH1 has trailing '/' and when it doesn't.  */
   if (len1 > 0 && isslash (path1[len1 - 1]))
@@ -776,7 +778,7 @@ rel_vconcat (const char *cwd, const char *s, va_list v)
       cwd = pathbuf;
     }
 
-  int max_len = -1;
+  int max_len = 0;
   mnt_t *m, *match = NULL;
 
   for (m = mount_table; m->posix; m++)
@@ -784,7 +786,7 @@ rel_vconcat (const char *cwd, const char *s, va_list v)
       if (m->flags & MOUNT_CYGDRIVE)
 	continue;
 
-      int n = strlen (m->native);
+      size_t n = strlen (m->native);
       if (n < max_len || !path_prefix_p (m->native, cwd, n))
 	continue;
       max_len = n;
@@ -819,7 +821,7 @@ rel_vconcat (const char *cwd, const char *s, va_list v)
 static char *
 vcygpath (const char *cwd, const char *s, va_list v)
 {
-  int max_len = -1;
+  size_t max_len = 0;
   mnt_t *m, *match = NULL;
 
   if (!max_mount_entry)
@@ -841,15 +843,23 @@ vcygpath (const char *cwd, const char *s, va_list v)
 
   for (m = mount_table; m->posix; m++)
     {
-      int n = strlen (m->posix);
+      size_t n = strlen (m->posix);
       if (n < max_len || !path_prefix_p (m->posix, path, n))
 	continue;
-      if ((m->flags & MOUNT_CYGDRIVE)
-	  && ((int) strlen (path) < n + 2
-	      || path[n] != '/'
-	      || !isalpha (path[n + 1])
-	      || path[n + 2] != '/'))
-	continue;
+      if (m->flags & MOUNT_CYGDRIVE)
+	{
+	  if (strlen (path) < n + 2)
+	    continue;
+	  /* If cygdrive path is just '/', fix n for followup evaluation. */
+	  if (n == 1)
+	    n = 0;
+	  if (path[n] != '/')
+	    continue;
+	  if (!isalpha (path[n + 1]))
+	    continue;
+	  if (path[n + 2] != '/')
+	    continue;
+	}
       max_len = n;
       match = m;
     }
@@ -857,7 +867,7 @@ vcygpath (const char *cwd, const char *s, va_list v)
   char *native;
   if (match == NULL)
     native = strdup (path);
-  else if (max_len == (int) strlen (path))
+  else if (max_len == strlen (path))
     native = strdup (match->native);
   else if (match->flags & MOUNT_CYGDRIVE)
     {

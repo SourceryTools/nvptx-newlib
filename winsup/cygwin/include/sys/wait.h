@@ -1,8 +1,5 @@
 /* sys/wait.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2006, 2011, 2012 Red
-   Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -91,7 +88,7 @@ inline int __wait_status_to_int (const union wait & __status)
 #else /* !__cplusplus */
 
 #define __wait_status_to_int(__status)  (__extension__ \
-  (((union { __typeof(__status) __in; int __out; }) { .__in = (__status) }).__out))
+  (((union { __typeof(__status) __sin; int __sout; }) { .__sin = (__status) }).__sout))
 
 #endif /* __cplusplus */
 

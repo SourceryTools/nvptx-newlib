@@ -1,8 +1,5 @@
 /* fhandler.cc.  See console.cc for fhandler_console functions.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -13,7 +10,7 @@ details. */
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/uio.h>
-#include <sys/acl.h>
+#include <cygwin/acl.h>
 #include <sys/param.h>
 #include "cygerrno.h"
 #include "perprocess.h"
@@ -114,26 +111,6 @@ fhandler_base::set_readahead_valid (int val, int ch)
 }
 
 int
-fhandler_base::eat_readahead (int n)
-{
-  int oralen = ralen;
-  if (n < 0)
-    n = ralen;
-  if (n > 0 && ralen)
-    {
-      if ((int) (ralen -= n) < 0)
-	ralen = 0;
-
-      if (raixget >= ralen)
-	raixget = raixput = ralen = 0;
-      else if (raixput > ralen)
-	raixput = ralen;
-    }
-
-  return oralen;
-}
-
-int
 fhandler_base::get_readahead_into_buffer (char *buf, size_t buflen)
 {
   int ch;
@@ -160,10 +137,15 @@ fhandler_base::set_name (path_conv &in_pc)
 
 char *fhandler_base::get_proc_fd_name (char *buf)
 {
+  /* If the file had been opened with O_TMPFILE | O_EXCL, don't
+     expose the filename.  linkat is supposed to return ENOENT in this
+     case.  See man 2 open on Linux. */
+  if ((get_flags () & (O_TMPFILE | O_EXCL)) == (O_TMPFILE | O_EXCL))
+    return strcpy (buf, "");
   if (get_name ())
     return strcpy (buf, get_name ());
-  if (dev ().name)
-    return strcpy (buf, dev ().name);
+  if (dev ().name ())
+    return strcpy (buf, dev ().name ());
   return strcpy (buf, "");
 }
 
@@ -205,6 +187,8 @@ fhandler_base::set_flags (int flags, int supplied_bin)
     bin = wbinary () || rbinary () ? O_BINARY : O_TEXT;
 
   openflags = flags | bin;
+  if (openflags & O_NONBLOCK)
+    was_nonblocking (true);
 
   bin &= O_BINARY;
   rbinary (bin ? true : false);
@@ -461,7 +445,7 @@ fhandler_base::open_with_arch (int flags, mode_t mode)
 {
   int res;
   if (!(res = (archetype && archetype->io_handle)
-	|| open (flags, (mode & 07777) & ~cygheap->umask)))
+	|| open (flags, mode & 07777)))
     {
       if (archetype)
 	delete archetype;
@@ -603,17 +587,32 @@ fhandler_base::open (int flags, mode_t mode)
 
   /* Don't use the FILE_OVERWRITE{_IF} flags here.  See below for an
      explanation, why that's not such a good idea. */
-  if ((flags & O_EXCL) && (flags & O_CREAT))
+  if (((flags & O_EXCL) && (flags & O_CREAT)) || (flags & O_TMPFILE))
     create_disposition = FILE_CREATE;
   else
     create_disposition = (flags & O_CREAT) ? FILE_OPEN_IF : FILE_OPEN;
 
   if (get_device () == FH_FS)
     {
-      /* Add the reparse point flag to native symlinks, otherwise we open the
-	 target, not the symlink.  This would break lstat. */
-      if (pc.is_rep_symlink ())
+      /* Add the reparse point flag to known repares points, otherwise we
+	 open the target, not the reparse point.  This would break lstat. */
+      if (pc.is_known_reparse_point ())
 	options |= FILE_OPEN_REPARSE_POINT;
+
+      /* O_TMPFILE files are created with delete-on-close semantics, as well
+	 as with FILE_ATTRIBUTE_TEMPORARY.  The latter speeds up file access,
+	 because the OS tries to keep the file in memory as much as possible.
+	 In conjunction with FILE_DELETE_ON_CLOSE, ideally the OS never has
+	 to write to the disk at all.
+	 Note that O_TMPFILE_FILE_ATTRS also sets the DOS HIDDEN attribute
+	 to help telling Cygwin O_TMPFILE files apart from other files
+	 accidentally setting FILE_ATTRIBUTE_TEMPORARY. */
+      if (flags & O_TMPFILE)
+	{
+	  access |= DELETE;
+	  file_attributes |= O_TMPFILE_FILE_ATTRS;
+	  options |= FILE_DELETE_ON_CLOSE;
+	}
 
       if (pc.fs_is_nfs ())
 	{
@@ -630,15 +629,7 @@ fhandler_base::open (int flags, mode_t mode)
 	    }
 	}
 
-      /* Trying to overwrite an already existing file with FILE_ATTRIBUTE_HIDDEN
-	 and/or FILE_ATTRIBUTE_SYSTEM attribute set, NtCreateFile fails with
-	 STATUS_ACCESS_DENIED.  Per MSDN you have to create the file with the
-	 same attributes as already specified for the file. */
-      if (create_disposition == FILE_CREATE
-	  && has_attribute (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM))
-	file_attributes |= pc.file_attributes ();
-
-      if (flags & O_CREAT)
+      if (flags & (O_CREAT | O_TMPFILE))
 	{
 	  file_attributes |= FILE_ATTRIBUTE_NORMAL;
 
@@ -660,9 +651,10 @@ fhandler_base::open (int flags, mode_t mode)
 					     + p->EaNameLength + 1);
 	      memset (nfs_attr, 0, sizeof (fattr3));
 	      nfs_attr->type = NF3REG;
-	      nfs_attr->mode = mode;
+	      nfs_attr->mode = (mode & 07777) & ~cygheap->umask;
 	    }
-	  else if (!has_acls () && !(mode & (S_IWUSR | S_IWGRP | S_IWOTH)))
+	  else if (!has_acls ()
+		   && !(mode & ~cygheap->umask & (S_IWUSR | S_IWGRP | S_IWOTH)))
 	    /* If mode has no write bits set, and ACLs are not used, we set
 	       the DOS R/O attribute. */
 	    file_attributes |= FILE_ATTRIBUTE_READONLY;
@@ -714,7 +706,7 @@ fhandler_base::open (int flags, mode_t mode)
      This is the result of a discussion on the samba-technical list, starting at
      http://lists.samba.org/archive/samba-technical/2008-July/060247.html */
   if (io.Information == FILE_CREATED && has_acls ())
-    set_file_attribute (fh, pc, ILLEGAL_UID, ILLEGAL_GID, S_JUSTCREATED | mode);
+    set_created_file_access (fh, pc, mode);
 
   /* If you O_TRUNC a file on Linux, the data is truncated, but the EAs are
      preserved.  If you open a file on Windows with FILE_OVERWRITE{_IF} or
@@ -833,7 +825,7 @@ out:
 ssize_t __stdcall
 fhandler_base::write (const void *ptr, size_t len)
 {
-  int res;
+  ssize_t res;
 
   if (did_lseek ())
     {
@@ -1242,8 +1234,13 @@ fhandler_base_overlapped::close ()
   int res;
   int writer = (get_access () & GENERIC_WRITE);
   /* Need to treat non-blocking I/O specially because Windows appears to
-     be brain-dead  */
-  if (writer && is_nonblocking () && has_ongoing_io ())
+     be brain-dead.  We're checking here if the descriptor was ever set
+     to nonblocking, rather than checking if it's nonblocking at close time.
+     The reason is that applications may switch back to blocking (for the
+     sake of some other application accessing this descriptor) without
+     performaing any further I/O.  These applications would suffer data
+     loss, which this workaround is trying to fix. */
+  if (writer && was_nonblocking () && has_ongoing_io ())
     {
       clone (HEAP_3_FHANDLER)->check_later ();
       res = 0;
@@ -1544,6 +1541,15 @@ fhandler_dev_null::fhandler_dev_null () :
 {
 }
 
+ssize_t __stdcall
+fhandler_dev_null::write (const void *ptr, size_t len)
+{
+  /* Shortcut.  This also fixes a problem with the NUL device on 64 bit:
+     If you write > 4 GB in a single attempt, the bytes written returned
+     from by is numBytes & 0xffffffff. */
+  return len;
+}
+
 void
 fhandler_base::set_no_inheritance (HANDLE &h, bool not_inheriting)
 {
@@ -1561,7 +1567,7 @@ fhandler_base::fork_fixup (HANDLE parent, HANDLE &h, const char *name)
 {
   HANDLE oh = h;
   bool res = false;
-  if (/* !is_socket () && */ !close_on_exec ())
+  if (!close_on_exec ())
     debug_printf ("handle %p already opened", h);
   else if (!DuplicateHandle (parent, h, GetCurrentProcess (), &h,
 			     0, !close_on_exec (), DUPLICATE_SAME_ACCESS))
@@ -1629,6 +1635,8 @@ fhandler_base::set_nonblocking (int yes)
   int current = openflags & O_NONBLOCK_MASK;
   int new_flags = yes ? (!current ? O_NONBLOCK : current) : 0;
   openflags = (openflags & ~O_NONBLOCK_MASK) | new_flags;
+  if (new_flags)
+    was_nonblocking (true);
 }
 
 int
@@ -1737,9 +1745,6 @@ fhandler_base::facl (int cmd, int nentries, aclent_t *aclbufp)
 	    aclbufp[2].a_type = OTHER_OBJ;
 	    aclbufp[2].a_id = ILLEGAL_GID;
 	    aclbufp[2].a_perm = S_IROTH | S_IWOTH;
-	    aclbufp[3].a_type = CLASS_OBJ;
-	    aclbufp[3].a_id = ILLEGAL_GID;
-	    aclbufp[3].a_perm = S_IRWXU | S_IRWXG | S_IRWXO;
 	    res = MIN_ACL_ENTRIES;
 	  }
 	break;
@@ -1778,8 +1783,7 @@ fhandler_base::fadvise (off_t offset, off_t length, int advice)
 int
 fhandler_base::ftruncate (off_t length, bool allow_truncate)
 {
-  set_errno (EINVAL);
-  return -1;
+  return EINVAL;
 }
 
 int
@@ -1887,6 +1891,8 @@ fhandler_base::fpathconf (int v)
 	return pc.has_acls () || pc.fs_is_nfs ();
       set_errno (EINVAL);
       break;
+    case _PC_CASE_INSENSITIVE:
+      return !!pc.objcaseinsensitive ();
     default:
       set_errno (EINVAL);
       break;
@@ -2087,6 +2093,46 @@ fhandler_base_overlapped::raw_write (const void *ptr, size_t len)
       else
 	chunk = max_atomic_write;
 
+      /* MSDN "WriteFile" contains the following note: "Accessing the output
+         buffer while a write operation is using the buffer may lead to
+	 corruption of the data written from that buffer.  [...]  This can
+	 be particularly problematic when using an asynchronous file handle.
+	 (https://msdn.microsoft.com/en-us/library/windows/desktop/aa365747)
+
+	 MSDN "Synchronous and Asynchronous I/O" contains the following note:
+	 "Do not deallocate or modify [...] the data buffer until all
+	 asynchronous I/O operations to the file object have been completed."
+	 (https://msdn.microsoft.com/en-us/library/windows/desktop/aa365683)
+
+	 This problem is a non-issue for blocking I/O, but it can lead to
+	 problems when using nonblocking I/O.  Consider:
+	 - The application uses a static buffer in repeated calls to
+	   non-blocking write.
+	 - The previous write returned with success, but the overlapped I/O
+	   operation is ongoing.
+	 - The application copies the next set of data to the static buffer,
+	   thus overwriting data still accessed by the previous write call.
+	 --> potential data corruption.
+
+	 What we do here is to allocate a per-fhandler buffer big enough
+	 to perform the maximum atomic operation from, copy the user space
+	 data over to this buffer and then call NtWriteFile on this buffer.
+	 This decouples the write operation from the user buffer and the
+	 user buffer can be reused without data corruption issues.
+
+	 Since no further write can occur while we're still having ongoing
+	 I/O, this should be reasanably safe.
+
+	 Note: We only have proof that this problem actually occurs on Wine
+	 yet.  However, the MSDN language indicates that this may be a real
+	 problem on real Windows as well. */
+      if (is_nonblocking ())
+	{
+	  if (!atomic_write_buf)
+	    atomic_write_buf = cmalloc_abort (HEAP_BUF, max_atomic_write);
+	  ptr = memcpy (atomic_write_buf, ptr, chunk);
+	}
+
       nbytes = 0;
       DWORD nbytes_now = 0;
       /* Write to fd in smaller chunks, accumulating a total.
@@ -2109,7 +2155,7 @@ fhandler_base_overlapped::raw_write (const void *ptr, size_t len)
 	    case overlapped_success:
 	      ptr = ((char *) ptr) + chunk;
 	      nbytes += nbytes_now;
-	      /* fall through intentionally */
+	      break;
 	    case overlapped_error:
 	      len = 0;		/* terminate loop */
 	    case overlapped_unknown:

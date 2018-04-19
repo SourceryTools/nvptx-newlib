@@ -38,6 +38,9 @@ case "${target}" in
 	AC_CONFIG_SUBDIRS(aarch64)
 	config_testsuite=true
 	;;
+  arc*-*-*)
+	AC_CONFIG_SUBDIRS(arc)
+	;;
   epiphany-*-*)
 	AC_CONFIG_SUBDIRS(epiphany)
 	config_testsuite=true
@@ -75,6 +78,9 @@ case "${target}" in
   mips*-*-*)
 	AC_CONFIG_SUBDIRS([mips])
 	;;
+  riscv*-*-*)
+	AC_CONFIG_SUBDIRS([riscv])
+	;;
   powerpc-*-*|powerpcle-*-*)
 	AC_CONFIG_SUBDIRS([rs6000])
 	;;
@@ -105,6 +111,9 @@ case "${target}" in
   frv*-*-*)
 	AC_CONFIG_SUBDIRS([frv])
 	;;
+  ft32*-*-*)
+	AC_CONFIG_SUBDIRS([ft32])
+	;;
   lm32*-*-*)
 	AC_CONFIG_SUBDIRS([lm32])
 	;;
@@ -126,6 +135,10 @@ case "${target}" in
   v850*-*-*)
         AC_CONFIG_SUBDIRS([v850])
         ;;
+  visium-*-*)
+	AC_CONFIG_SUBDIRS([visium])
+	config_testsuite=false
+	;;
   xc16x-*-*)
 	AC_CONFIG_SUBDIRS([xc16x])
 	;;
@@ -159,6 +172,9 @@ case "${target}" in
 	;;
   iq2000-*-*)
 	AC_CONFIG_SUBDIRS([iq2000])
+	;;
+  or1k-*-* | or1knd-*-* )
+	AC_CONFIG_SUBDIRS([or1k])
 	;;
 esac
 

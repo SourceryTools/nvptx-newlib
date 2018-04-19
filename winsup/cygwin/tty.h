@@ -1,8 +1,5 @@
 /* tty.h: shared tty info for cygwin
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2006, 2009, 2010, 2011, 2012, 2013
-   Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -15,7 +12,7 @@ details. */
 
 #define INP_BUFFER_SIZE 256
 #define OUT_BUFFER_SIZE 256
-#define NTTYS		64
+#define NTTYS		128
 #define real_tty_attached(p)	((p)->ctty > 0 && !iscons_dev ((p)->ctty))
 
 /* Input/Output/ioctl events */
@@ -67,7 +64,6 @@ public:
    * -ERRNO
    */
   int ioctl_retval;
-  int write_error;
 
   void setntty (_major_t t, _minor_t n) {ntty = (fh_devices) FHDEV (t, n);}
   dev_t getntty () const {return ntty;}
@@ -91,32 +87,21 @@ public:
   pid_t master_pid;	/* PID of tty master process */
 
 private:
-  /* Since tty is shared, the HANDLEs must be 32 and 64 bit clean.  The below
-     code makes sure of that by setting the upper 4 byte of the union to 0
-     when writing the handle value from a 32 bit process.  Fortunately the
-     actual values are 32 bit on both platforms, so the HANDLES can be
-     used on both platforms. */
-  union {
-    HANDLE _from_master;
-    LARGE_INTEGER _fm_dummy;
-  };
-  union {    
-    HANDLE _to_master;
-    LARGE_INTEGER _tm_dummy;
-  };
+  HANDLE _from_master;
+  HANDLE _to_master;
+  HANDLE _to_master_cyg;
+
 public:
   HANDLE from_master() const { return _from_master; }
   HANDLE to_master() const { return _to_master; }
-#ifdef __x86_64__
+  HANDLE to_master_cyg() const { return _to_master_cyg; }
   void set_from_master (HANDLE h) { _from_master = h; }
   void set_to_master (HANDLE h) { _to_master = h; }
-#else
-  void set_from_master (HANDLE h) { _fm_dummy.HighPart = 0; _from_master = h; }
-  void set_to_master (HANDLE h) { _tm_dummy.HighPart = 0; _to_master = h; }
-#endif
+  void set_to_master_cyg (HANDLE h) { _to_master_cyg = h; }
 
   int read_retval;
   bool was_opened;	/* True if opened at least once. */
+  int column;	/* Current Column */
 
   void init ();
   HANDLE open_inuse (ACCESS_MASK access);
@@ -129,8 +114,7 @@ public:
     { return open_mutex (INPUT_MUTEX, access); }
   bool exists ();
   bool not_allocated (HANDLE&, HANDLE&);
-  void set_master_closed () {master_pid = -1;}
-  bool is_master_closed () const {return master_pid == -1;}
+  void set_master_ctl_closed () {master_pid = -1;}
   static void __stdcall create_master (int);
   static void __stdcall init_session ();
   friend class fhandler_pty_master;

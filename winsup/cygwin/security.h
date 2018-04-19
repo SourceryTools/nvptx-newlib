@@ -1,8 +1,5 @@
 /* security.h: security declarations
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -14,15 +11,26 @@ details. */
 #include <accctrl.h>
 #include <dsgetdc.h>
 
-/* Special file attribute set, for instance, in open() and mkdir() to
-   flag that a file has just been created.  Used in alloc_sd, see there. */
-#define S_JUSTCREATED 0x80000000
+/* Special file attribute set in set_created_file_access to flag that a file
+   has just been created.  Used in get_posix_access. */
+#define S_JUSTCREATED	0x80000000
 
 /* UID/GID */
 void uinfo_init ();
+bool check_token_membership (PSID);
 
 #define ILLEGAL_UID ((uid_t)-1)
 #define ILLEGAL_GID ((gid_t)-1)
+
+/* Offset for accounts in the primary domain of the machine. */
+#define PRIMARY_POSIX_OFFSET		(0x00100000)
+
+/* Fake POSIX offsets used in scenarios in which the account has no permission
+   to fetch the POSIX offset, or when the admins have set the offset to an
+   unreasonable low value.  The values are chosen in the hope that they won't
+   collide with "real" offsets. */
+#define NOACCESS_POSIX_OFFSET		(0xfe500000)
+#define UNUSABLE_POSIX_OFFSET		(0xfea00000)
 
 /* For UNIX accounts not mapped to Windows accounts via winbind, Samba returns
    SIDs of the form S-1-22-x-y, with x == 1 for users and x == 2 for groups,
@@ -37,7 +45,7 @@ void uinfo_init ();
 #define MAP_UNIX_TO_CYGWIN_ID(id)	(UNIX_POSIX_OFFSET \
 					 | ((id) & UNIX_POSIX_MASK))
 
-#ifndef __x86_64__
+#ifdef __i386__
 #define ILLEGAL_UID16 ((__uid16_t)-1)
 #define ILLEGAL_GID16 ((__gid16_t)-1)
 #define uid16touid32(u16)  ((u16)==ILLEGAL_UID16?ILLEGAL_UID:(uid_t)(u16))
@@ -82,7 +90,6 @@ void uinfo_init ();
 #define SE_MANAGE_VOLUME_PRIVILEGE          28U
 #define SE_IMPERSONATE_PRIVILEGE            29U
 #define SE_CREATE_GLOBAL_PRIVILEGE          30U
-/* Starting with Vista */
 #define SE_TRUSTED_CREDMAN_ACCESS_PRIVILEGE 31U
 #define SE_RELABEL_PRIVILEGE                32U
 #define SE_INCREASE_WORKING_SET_PRIVILEGE   33U
@@ -227,6 +234,21 @@ public:
 
   inline PSID set () { return psid = (PSID) sbuf; }
 
+  inline BOOL getfrompw_gecos (const struct passwd *pw)
+    {
+      char *sp = (pw && pw->pw_gecos) ? strrchr (pw->pw_gecos, ',') : NULL;
+      return (*this = sp ? sp + 1 : sp) != NO_SID;
+    }
+  inline BOOL getfromgr_passwd (const struct group *gr)
+    {
+      char *sp = (gr && gr->gr_passwd) ? gr->gr_passwd : NULL;
+      return (*this = sp) != NO_SID;
+    }
+
+  const PSID create (DWORD auth, DWORD subauth_cnt, ...);
+  bool append (DWORD rid);
+
+  /* Implemented in pwdgrp.h. */
   BOOL getfrompw (const struct passwd *pw);
   BOOL getfromgr (const struct group *gr);
 
@@ -414,20 +436,19 @@ class path_conv;
 /* File manipulation */
 int __reg3 get_file_attribute (HANDLE, path_conv &, mode_t *,
 				  uid_t *, gid_t *);
-int __reg3 set_file_attribute (HANDLE, path_conv &,
-				  uid_t, gid_t, mode_t);
+int __reg3 set_created_file_access (HANDLE, path_conv &, mode_t);
 int __reg2 get_object_sd (HANDLE, security_descriptor &);
 int __reg3 get_object_attribute (HANDLE, uid_t *, gid_t *, mode_t *);
 int __reg3 set_object_attribute (HANDLE, uid_t, gid_t, mode_t);
-int __reg3 create_object_sd_from_attribute (HANDLE, uid_t, gid_t,
-					       mode_t, security_descriptor &);
+int __reg3 create_object_sd_from_attribute (uid_t, gid_t, mode_t,
+					    security_descriptor &);
 int __reg3 set_object_sd (HANDLE, security_descriptor &, bool);
 
 int __reg3 get_reg_attribute (HKEY hkey, mode_t *, uid_t *, gid_t *);
 LONG __reg3 get_file_sd (HANDLE fh, path_conv &, security_descriptor &, bool);
 LONG __reg3 set_file_sd (HANDLE fh, path_conv &, security_descriptor &, bool);
-bool __reg3 add_access_allowed_ace (PACL, int, DWORD, PSID, size_t &, DWORD);
-bool __reg3 add_access_denied_ace (PACL, int, DWORD, PSID, size_t &, DWORD);
+bool __reg3 add_access_allowed_ace (PACL, DWORD, PSID, size_t &, DWORD);
+bool __reg3 add_access_denied_ace (PACL, DWORD, PSID, size_t &, DWORD);
 int __reg3 check_file_access (path_conv &, int, bool);
 int __reg3 check_registry_access (HANDLE, int, bool);
 
@@ -435,32 +456,44 @@ void set_security_attribute (path_conv &pc, int attribute,
 			     PSECURITY_ATTRIBUTES psa,
 			     security_descriptor &sd_buf);
 
-bool get_sids_info (cygpsid, cygpsid, uid_t * , gid_t *);
+bool authz_get_user_attribute (mode_t *attribute, PSECURITY_DESCRIPTOR psd,
+			       PSID user_sid);
 
 /* sec_acl.cc */
 struct acl;
 extern "C" int aclsort32 (int, int, struct acl *);
 extern "C" int acl32 (const char *, int, int, struct acl *);
+int searchace (struct acl *, int, int, uid_t id = ILLEGAL_UID);
+PSECURITY_DESCRIPTOR set_posix_access (mode_t, uid_t, gid_t, struct acl *, int,
+				       security_descriptor &, bool);
+int get_posix_access (PSECURITY_DESCRIPTOR, mode_t *, uid_t *, gid_t *,
+		      struct acl *, int, bool * = NULL);
 int getacl (HANDLE, path_conv &, int, struct acl *);
 int setacl (HANDLE, path_conv &, int, struct acl *, bool &);
 
 /* Set impersonation or restricted token.  */
 void set_imp_token (HANDLE token, int type);
 /* Function creating a token by calling NtCreateToken. */
-HANDLE create_token (cygsid &usersid, user_groups &groups, struct passwd * pw);
+HANDLE create_token (cygsid &usersid, user_groups &groups);
 /* LSA authentication function. */
-HANDLE lsaauth (cygsid &, user_groups &, struct passwd *);
+HANDLE lsaauth (cygsid &, user_groups &);
 /* LSA private key storage authentication, same as when using service logons. */
 HANDLE lsaprivkeyauth (struct passwd *pw);
 /* Verify an existing token */
 bool verify_token (HANDLE token, cygsid &usersid, user_groups &groups, bool *pintern = NULL);
 /* Get groups of a user */
-bool get_server_groups (cygsidlist &grp_list, PSID usersid, struct passwd *pw);
+bool get_server_groups (cygsidlist &grp_list, PSID usersid);
 
 /* Extract U-domain\user field from passwd entry. */
 void extract_nt_dom_user (const struct passwd *pw, PWCHAR domain, PWCHAR user);
 /* Get default logonserver for a domain. */
-bool get_logon_server (PWCHAR domain, PWCHAR wserver, ULONG flags);
+bool get_logon_server (PCWSTR domain, PWCHAR wserver, ULONG flags);
+
+/* Fetch user profile path from registry, if it already exists. */
+PWCHAR get_user_profile_directory (PCWSTR sidstr, PWCHAR path, SIZE_T path_len);
+
+/* Load user profile if it's not already loaded. */
+HANDLE load_user_profile (HANDLE token, struct passwd *pw, cygpsid &sid);
 
 HANDLE lsa_open_policy (PWCHAR server, ACCESS_MASK access);
 void lsa_close_policy (HANDLE lsa);

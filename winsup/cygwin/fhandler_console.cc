@@ -1,8 +1,5 @@
 /* fhandler_console.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -45,8 +42,6 @@ details. */
 #define con (shared_console_info->con)
 #define srTop (con.b.srWindow.Top + con.scroll_region.Top)
 #define srBottom ((con.scroll_region.Bottom < 0) ? con.b.srWindow.Bottom : con.b.srWindow.Top + con.scroll_region.Bottom)
-
-const char *get_nonascii_key (INPUT_RECORD&, char *);
 
 const unsigned fhandler_console::MAX_WRITE_CHARS = 16384;
 
@@ -196,6 +191,7 @@ fhandler_console::setup ()
 	  con.meta_mask |= RIGHT_ALT_PRESSED;
 	con.set_default_attr ();
 	con.backspace_keycode = CERASE;
+	con.cons_rapoi = NULL;
 	shared_console_info->tty_min_state.is_console = true;
       }
 }
@@ -218,8 +214,7 @@ tty_list::get_cttyp ()
 inline DWORD
 dev_console::con_to_str (char *d, int dlen, WCHAR w)
 {
-  return sys_cp_wcstombs (cygheap->locale.wctomb, cygheap->locale.charset,
-			  d, dlen, &w, 1);
+  return sys_wcstombs (d, dlen, &w, 1);
 }
 
 inline UINT
@@ -230,10 +225,9 @@ dev_console::get_console_cp ()
 }
 
 inline DWORD
-dev_console::str_to_con (mbtowc_p f_mbtowc, const char *charset,
-			 PWCHAR d, const char *s, DWORD sz)
+dev_console::str_to_con (mbtowc_p f_mbtowc, PWCHAR d, const char *s, DWORD sz)
 {
-  return sys_cp_mbstowcs (f_mbtowc, charset, d, CONVERT_LIMIT, s, sz);
+  return sys_cp_mbstowcs (f_mbtowc, d, CONVERT_LIMIT, s, sz);
 }
 
 bool
@@ -311,6 +305,14 @@ fhandler_console::read (void *pv, size_t& buflen)
   int ch;
   set_input_state ();
 
+  /* Check console read-ahead buffer filled from terminal requests */
+  if (con.cons_rapoi && *con.cons_rapoi)
+    {
+      *buf = *con.cons_rapoi++;
+      buflen = 1;
+      return;
+    }
+
   int copied_chars = get_readahead_into_buffer (buf, buflen);
 
   if (copied_chars)
@@ -361,21 +363,22 @@ fhandler_console::read (void *pv, size_t& buflen)
 	  goto err;		/* seems to be failure */
 	}
 
+      const WCHAR &unicode_char = input_rec.Event.KeyEvent.uChar.UnicodeChar;
+      const DWORD &ctrl_key_state = input_rec.Event.KeyEvent.dwControlKeyState;
+
       /* check the event that occurred */
       switch (input_rec.EventType)
 	{
 	case KEY_EVENT:
-#define virtual_key_code (input_rec.Event.KeyEvent.wVirtualKeyCode)
-#define control_key_state (input_rec.Event.KeyEvent.dwControlKeyState)
 
 	  con.nModifiers = 0;
 
 #ifdef DEBUGGING
 	  /* allow manual switching to/from raw mode via ctrl-alt-scrolllock */
-	  if (input_rec.Event.KeyEvent.bKeyDown &&
-	      virtual_key_code == VK_SCROLL &&
-	      ((control_key_state & (LEFT_ALT_PRESSED | LEFT_CTRL_PRESSED)) == (LEFT_ALT_PRESSED | LEFT_CTRL_PRESSED))
-	    )
+	  if (input_rec.Event.KeyEvent.bKeyDown
+	      && input_rec.Event.KeyEvent.wVirtualKeyCode == VK_SCROLL
+	      && (ctrl_key_state & (LEFT_ALT_PRESSED | LEFT_CTRL_PRESSED))
+		  == (LEFT_ALT_PRESSED | LEFT_CTRL_PRESSED))
 	    {
 	      set_raw_win32_keyboard_mode (!con.raw_win32_keyboard_mode);
 	      continue;
@@ -396,31 +399,23 @@ fhandler_console::read (void *pv, size_t& buflen)
 	      break;
 	    }
 
-#define ich (input_rec.Event.KeyEvent.uChar.AsciiChar)
-#define wch (input_rec.Event.KeyEvent.uChar.UnicodeChar)
-
-	  /* Ignore key up events, except for left alt events with non-zero character
-	   */
+	  /* Ignore key up events, except for Alt+Numpad events. */
 	  if (!input_rec.Event.KeyEvent.bKeyDown &&
-	      /*
-		Event for left alt, with a non-zero character, comes from
-		"alt + numerics" key sequence.
-		e.g. <left-alt> 0233 => &eacute;
-	      */
-	      !(wch != 0
-		// ?? experimentally determined on an XP system
-		&& virtual_key_code == VK_MENU
-		// left alt -- see http://www.microsoft.com/hwdev/tech/input/Scancode.asp
-		&& input_rec.Event.KeyEvent.wVirtualScanCode == 0x38))
+	      !is_alt_numpad_event (&input_rec))
+	    continue;
+	  /* Ignore Alt+Numpad keys.  They are eventually handled below after
+	     releasing the Alt key. */
+	  if (input_rec.Event.KeyEvent.bKeyDown
+	      && is_alt_numpad_key (&input_rec))
 	    continue;
 
-	  if (control_key_state & SHIFT_PRESSED)
+	  if (ctrl_key_state & SHIFT_PRESSED)
 	    con.nModifiers |= 1;
-	  if (control_key_state & RIGHT_ALT_PRESSED)
+	  if (ctrl_key_state & RIGHT_ALT_PRESSED)
 	    con.nModifiers |= 2;
-	  if (control_key_state & CTRL_PRESSED)
+	  if (ctrl_key_state & CTRL_PRESSED)
 	    con.nModifiers |= 4;
-	  if (control_key_state & LEFT_ALT_PRESSED)
+	  if (ctrl_key_state & LEFT_ALT_PRESSED)
 	    con.nModifiers |= 8;
 
 	  /* Allow Backspace to emit ^? and escape sequences. */
@@ -428,7 +423,7 @@ fhandler_console::read (void *pv, size_t& buflen)
 	    {
 	      char c = con.backspace_keycode;
 	      nread = 0;
-	      if (control_key_state & ALT_PRESSED)
+	      if (ctrl_key_state & ALT_PRESSED)
 		{
 		  if (con.metabit)
 		    c |= 0x80;
@@ -441,10 +436,10 @@ fhandler_console::read (void *pv, size_t& buflen)
 	    }
 	  /* Allow Ctrl-Space to emit ^@ */
 	  else if (input_rec.Event.KeyEvent.wVirtualKeyCode == VK_SPACE
-		   && (control_key_state & CTRL_PRESSED)
-		   && !(control_key_state & ALT_PRESSED))
+		   && (ctrl_key_state & CTRL_PRESSED)
+		   && !(ctrl_key_state & ALT_PRESSED))
 	    toadd = "";
-	  else if (wch == 0
+	  else if (unicode_char == 0
 	      /* arrow/function keys */
 	      || (input_rec.Event.KeyEvent.dwControlKeyState & ENHANCED_KEY))
 	    {
@@ -458,17 +453,17 @@ fhandler_console::read (void *pv, size_t& buflen)
 	    }
 	  else
 	    {
-	      nread = con.con_to_str (tmp + 1, 59, wch);
+	      nread = con.con_to_str (tmp + 1, 59, unicode_char);
 	      /* Determine if the keystroke is modified by META.  The tricky
 		 part is to distinguish whether the right Alt key should be
 		 recognized as Alt, or as AltGr. */
 	      bool meta =
 		     /* Alt but not AltGr (= left ctrl + right alt)? */
-		     (control_key_state & ALT_PRESSED) != 0
-		     && ((control_key_state & CTRL_PRESSED) == 0
+		     (ctrl_key_state & ALT_PRESSED) != 0
+		     && ((ctrl_key_state & CTRL_PRESSED) == 0
 			    /* but also allow Alt-AltGr: */
-			 || (control_key_state & ALT_PRESSED) == ALT_PRESSED
-			 || (wch <= 0x1f || wch == 0x7f));
+			 || (ctrl_key_state & ALT_PRESSED) == ALT_PRESSED
+			 || (unicode_char <= 0x1f || unicode_char == 0x7f));
 	      if (!meta)
 		{
 		  /* Determine if the character is in the current multibyte
@@ -496,8 +491,6 @@ fhandler_console::read (void *pv, size_t& buflen)
 		  con.nModifiers &= ~4;
 		}
 	    }
-#undef ich
-#undef wch
 	  break;
 
 	case MOUSE_EVENT:
@@ -738,8 +731,6 @@ dev_console::fillin (HANDLE h)
     {
       dwWinSize.Y = 1 + b.srWindow.Bottom - b.srWindow.Top;
       dwWinSize.X = 1 + b.srWindow.Right - b.srWindow.Left;
-      if (b.dwSize.Y != b.dwSize.Y || b.dwSize.X != b.dwSize.X)
-	dwEnd.X = dwEnd.Y = 0;
       if (b.dwCursorPosition.Y > dwEnd.Y
 	  || (b.dwCursorPosition.Y >= dwEnd.Y && b.dwCursorPosition.X > dwEnd.X))
 	dwEnd = b.dwCursorPosition;
@@ -799,7 +790,7 @@ fhandler_console::scroll_buffer_screen (int x1, int y1, int x2, int y2, int xn, 
   if (y1 >= 0)
     y1 += con.b.srWindow.Top;
   if (y2 >= 0)
-    y1 += con.b.srWindow.Top;
+    y2 += con.b.srWindow.Top;
   if (yn >= 0)
     yn += con.b.srWindow.Top;
   con.scroll_buffer (get_output_handle (), x1, y1, x2, y2, xn, yn);
@@ -1215,30 +1206,64 @@ dev_console::scroll_window (HANDLE h, int x1, int y1, int x2, int y2)
     return false;
 
   SMALL_RECT sr;
-  int toscroll = 2 + dwEnd.Y - b.srWindow.Top;
-  int shrink = 1 + toscroll + b.srWindow.Bottom - b.dwSize.Y;
+  int toscroll = dwEnd.Y - b.srWindow.Top + 1;
   sr.Left = sr.Right = dwEnd.X = 0;
-  /* Can't increment dwEnd yet since we may not have space in
-     the buffer.  */
-  SetConsoleCursorPosition (h, dwEnd);
-  if (shrink > 0)
+
+  if (b.srWindow.Bottom + toscroll >= b.dwSize.Y)
     {
-      COORD c = b.dwSize;
-      c.Y = dwEnd.Y - shrink;
-      SetConsoleScreenBufferSize (h, c);
-      SetConsoleScreenBufferSize (h, b.dwSize);
-      dwEnd.Y = 0;
-      fillin (h);
-      toscroll = 2 + dwEnd.Y - b.srWindow.Top;
+      /* So we're at the end of the buffer and scrolling the console window
+	 would move us beyond the buffer.  What we do here is to scroll the
+	 console buffer upward by just as much so that the current last line
+	 becomes the last line just prior to the first window line.  That
+	 keeps the end of the console buffer intact, as desired. */
+      SMALL_RECT br;
+      COORD dest;
+      CHAR_INFO fill;
+
+      br.Left = 0;
+      br.Top = (b.srWindow.Bottom - b.srWindow.Top) + 1
+	       - (b.dwSize.Y - dwEnd.Y - 1);
+      br.Right = b.dwSize.X - 1;
+      br.Bottom = b.dwSize.Y - 1;
+      dest.X = dest.Y = 0;
+      fill.Char.AsciiChar = ' ';
+      fill.Attributes = current_win32_attr;
+      ScrollConsoleScreenBuffer (h, &br, NULL, dest, &fill);
+      /* Since we're moving the console buffer under the console window
+	 we only have to move the console window if the user scrolled the
+	 window upwards.  The number of lines is the distance to the
+	 buffer bottom. */
+      toscroll = b.dwSize.Y - b.srWindow.Bottom - 1;
+      /* Fix dwEnd to reflect the new cursor line.  Take the above scrolling
+	 into account and subtract 1 to account for the increment below. */
+      dwEnd.Y = b.dwCursorPosition.Y + toscroll - 1;
     }
+  if (toscroll)
+    {
+      /* FIXME: For some reason SetConsoleWindowInfo does not correctly
+	 set the scrollbars.  Calling SetConsoleCursorPosition here is
+	 just a workaround which doesn't cover all cases.  In some scenarios
+	 the scrollbars are still off by one console window size. */
 
-  sr.Top = sr.Bottom = toscroll;
-
-  SetConsoleWindowInfo (h, FALSE, &sr);
-
+      /* The reminder of the console buffer is big enough to simply move
+         the console window.  We have to set the cursor first, otherwise
+	 the scroll bars will not be corrected.  */
+      SetConsoleCursorPosition (h, dwEnd);
+      /* If the user scolled manually, setting the cursor position might scroll
+         the console window so that the cursor is not at the top.  Correct
+	 the action by moving the window down again so the cursor is one line
+	 above the new window position. */
+      GetConsoleScreenBufferInfo (h, &b);
+      if (b.dwCursorPosition.Y >= b.srWindow.Top)
+	toscroll = b.dwCursorPosition.Y - b.srWindow.Top + 1;
+      /* Move the window accordingly. */
+      sr.Top = sr.Bottom = toscroll;
+      SetConsoleWindowInfo (h, FALSE, &sr);
+    }
+  /* Eventually set cursor to new end position at the top of the window. */
   dwEnd.Y++;
   SetConsoleCursorPosition (h, dwEnd);
-
+  /* Fix up console buffer info. */
   fillin (h);
   return true;
 }
@@ -1251,12 +1276,23 @@ void __reg3
 fhandler_console::clear_screen (cltype xc1, cltype yc1, cltype xc2, cltype yc2)
 {
   HANDLE h = get_output_handle ();
+  SHORT oldEndY = con.dwEnd.Y;
+
   con.fillin (h);
 
   int x1 = con.set_cl_x (xc1);
   int y1 = con.set_cl_y (yc1);
   int x2 = con.set_cl_x (xc2);
   int y2 = con.set_cl_y (yc2);
+
+  /* Make correction for the following situation:  The console buffer
+     is only partially used and the user scrolled down into the as yet
+     unused area so far that the cursor is outside the window buffer. */
+  if (oldEndY < con.dwEnd.Y && oldEndY < con.b.srWindow.Top)
+    {
+      con.dwEnd.Y = con.b.dwCursorPosition.Y = oldEndY;
+      y1 = con.b.srWindow.Top;
+    }
 
   /* Detect special case - scroll the screen if we have a buffer in order to
      preserve the buffer. */
@@ -1283,7 +1319,7 @@ dev_console::clear_screen (HANDLE h, int x1, int y1, int x2, int y2)
       tlc.X = x2;
       tlc.Y = y2;
     }
-  FillConsoleOutputCharacterA (h, ' ', num, tlc, &done);
+  FillConsoleOutputCharacterW (h, L' ', num, tlc, &done);
   FillConsoleOutputAttribute (h, current_win32_attr, num, tlc, &done);
 }
 
@@ -1900,8 +1936,11 @@ fhandler_console::char_command (char c)
 	strcpy (buf, "\033[?6c");
       /* The generated report needs to be injected for read-ahead into the
 	 fhandler_console object associated with standard input.
-	 The current call does not work. */
-      puts_readahead (buf);
+	 So puts_readahead does not work.
+	 Use a common console read-ahead buffer instead. */
+      con.cons_rapoi = NULL;
+      strcpy (con.cons_rabuf, buf);
+      con.cons_rapoi = con.cons_rabuf;
       break;
     case 'n':
       switch (con.args[0])
@@ -1911,9 +1950,11 @@ fhandler_console::char_command (char c)
 	  y -= con.b.srWindow.Top;
 	  /* x -= con.b.srWindow.Left;		// not available yet */
 	  __small_sprintf (buf, "\033[%d;%dR", y + 1, x + 1);
-	  puts_readahead (buf);
+	  con.cons_rapoi = NULL;
+	  strcpy (con.cons_rabuf, buf);
+	  con.cons_rapoi = con.cons_rabuf;
 	  break;
-      default:
+	default:
 	  goto bad_escape;
 	}
       break;
@@ -1951,21 +1992,12 @@ fhandler_console::write_normal (const unsigned char *src,
   const unsigned char *found = src;
   size_t ret;
   mbstate_t ps;
-  UINT cp = con.get_console_cp ();
-  const char *charset;
   mbtowc_p f_mbtowc;
 
-  if (cp)
-    {
-      /* The alternate charset is always 437, just as in the Linux console. */
-      f_mbtowc = __cp_mbtowc;
-      charset = "CP437";
-    }
-  else
-    {
-      f_mbtowc = cygheap->locale.mbtowc;
-      charset = cygheap->locale.charset;
-    }
+  /* The alternate charset is always 437, just as in the Linux console. */
+  f_mbtowc = con.get_console_cp () ? __cp_mbtowc (437) : __MBTOWC;
+  if (f_mbtowc == __ascii_mbtowc)
+    f_mbtowc = __utf8_mbtowc;
 
   /* First check if we have cached lead bytes of a former try to write
      a truncated multibyte sequence.  If so, process it. */
@@ -1976,7 +2008,7 @@ fhandler_console::write_normal (const unsigned char *src,
       memcpy (trunc_buf.buf + trunc_buf.len, src, cp_len);
       memset (&ps, 0, sizeof ps);
       switch (ret = f_mbtowc (_REENT, NULL, (const char *) trunc_buf.buf,
-			       trunc_buf.len + cp_len, charset, &ps))
+			       trunc_buf.len + cp_len, &ps))
 	{
 	case -2:
 	  /* Still truncated multibyte sequence?  Keep in trunc_buf. */
@@ -2001,9 +2033,9 @@ fhandler_console::write_normal (const unsigned char *src,
       /* Valid multibyte sequence?  Process. */
       if (nfound)
 	{
-	  buf_len = con.str_to_con (f_mbtowc, charset, write_buf,
-					   (const char *) trunc_buf.buf,
-					   nfound - trunc_buf.buf);
+	  buf_len = con.str_to_con (f_mbtowc, write_buf,
+				    (const char *) trunc_buf.buf,
+				    nfound - trunc_buf.buf);
 	  if (!write_console (write_buf, buf_len, done))
 	    {
 	      debug_printf ("multibyte sequence write failed, handle %p", get_output_handle ());
@@ -2024,7 +2056,7 @@ fhandler_console::write_normal (const unsigned char *src,
 	 && base_chars[*found] == NOR)
     {
       switch (ret = f_mbtowc (_REENT, NULL, (const char *) found,
-			       end - found, charset, &ps))
+			       end - found, &ps))
 	{
 	case -2: /* Truncated multibyte sequence.  Store for next write. */
 	  trunc_buf.len = end - found;
@@ -2047,8 +2079,7 @@ do_print:
   if (found != src)
     {
       DWORD len = found - src;
-      buf_len = con.str_to_con (f_mbtowc, charset, write_buf,
-				       (const char *) src, len);
+      buf_len = con.str_to_con (f_mbtowc, write_buf, (const char *) src, len);
       if (!buf_len)
 	{
 	  debug_printf ("conversion error, handle %p",
@@ -2127,7 +2158,7 @@ do_print:
 	      if (found + 1 < end)
 		{
 		  ret = __utf8_mbtowc (_REENT, NULL, (const char *) found + 1,
-				       end - found - 1, NULL, &ps);
+				       end - found - 1, &ps);
 		  if (ret != (size_t) -1)
 		    while (ret-- > 0)
 		      {
@@ -2185,12 +2216,11 @@ fhandler_console::write (const void *vsrc, size_t len)
 	  if (*src == '[')		/* CSI Control Sequence Introducer */
 	    {
 	      con.state = gotsquare;
+	      memset (con.args, 0, sizeof con.args);
+	      con.nargs = 0;
 	      con.saw_question_mark = false;
 	      con.saw_greater_than_sign = false;
 	      con.saw_space = false;
-	      for (con.nargs = 0; con.nargs < MAXARGS; con.nargs++)
-		con.args[con.nargs] = 0;
-	      con.nargs = 0;
 	    }
 	  else if (*src == ']')		/* OSC Operating System Command */
 	    {
@@ -2378,7 +2408,7 @@ static const struct {
 };
 
 const char *
-get_nonascii_key (INPUT_RECORD& input_rec, char *tmp)
+fhandler_console::get_nonascii_key (INPUT_RECORD& input_rec, char *tmp)
 {
 #define NORMAL  0
 #define SHIFT	1

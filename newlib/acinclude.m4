@@ -1,8 +1,10 @@
 dnl This provides configure definitions used by all the newlib
 dnl configure.in files.
 
-AC_DEFUN([DEF_NEWLIB_VERSION],
-m4_define([NEWLIB_VERSION],[2.1.0]))
+AC_DEFUN([DEF_NEWLIB_MAJOR_VERSION],m4_define([NEWLIB_MAJOR_VERSION],[3]))
+AC_DEFUN([DEF_NEWLIB_MINOR_VERSION],m4_define([NEWLIB_MINOR_VERSION],[0]))
+AC_DEFUN([DEF_NEWLIB_PATCHLEVEL_VERSION],m4_define([NEWLIB_PATCHLEVEL_VERSION],[0]))
+AC_DEFUN([DEF_NEWLIB_VERSION],m4_define([NEWLIB_VERSION],[NEWLIB_MAJOR_VERSION.NEWLIB_MINOR_VERSION.NEWLIB_PATCHLEVEL_VERSION]))
 
 dnl Basic newlib configury.  This calls basic introductory stuff,
 dnl including AM_INIT_AUTOMAKE and AC_CANONICAL_HOST.  It also runs
@@ -218,6 +220,11 @@ AM_CONDITIONAL(ELIX_LEVEL_3, test x[$]{newlib_elix_level} = x3)
 AM_CONDITIONAL(ELIX_LEVEL_4, test x[$]{newlib_elix_level} = x4)
 
 AM_CONDITIONAL(USE_LIBTOOL, test x[$]{use_libtool} = xyes)
+
+# Emit any target-specific warnings.
+if test "x${newlib_msg_warn}" != "x"; then
+   AC_MSG_WARN([${newlib_msg_warn}])
+fi
 
 # Hard-code OBJEXT.  Normally it is set by AC_OBJEXT, but we
 # use oext, which is set in configure.host based on the target platform.

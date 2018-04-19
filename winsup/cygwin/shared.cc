@@ -1,8 +1,5 @@
 /* shared.cc: shared data area support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -230,13 +227,18 @@ user_info::initialize ()
   if (!sversion)
     {
       cb = sizeof (*user_shared);
+      /* Initialize mount table from system fstab prior to calling
+         internal_getpwsid.  This allows to convert pw_dir and pw_shell
+	 paths given in DOS notation to valid POSIX paths.  */
+      mountinfo.init (false);
       cygpsid sid (cygheap->user.sid ());
       struct passwd *pw = internal_getpwsid (sid);
       /* Correct the user name with what's defined in /etc/passwd before
 	 loading the user fstab file. */
       if (pw)
 	cygheap->user.set_name (pw->pw_name);
-      mountinfo.init ();	/* Initialize the mount table.  */
+      /* After fetching the user infos, add mount entries from user's fstab. */
+      mountinfo.init (true);
     }
   else if (sversion != CURR_USER_MAGIC)
     sversion.multiple_cygwin_problem ("user shared memory version", version,
@@ -326,6 +328,7 @@ shared_info::initialize ()
       init_obcaseinsensitive ();	/* Initialize obcaseinsensitive */
       tty.init ();			/* Initialize tty table  */
       mt.initialize ();			/* Initialize shared tape information */
+      loadavg.initialize ();		/* Initialize loadavg information */
       /* Defer debug output printing the installation root and installation key
 	 up to this point.  Debug output except for system_printf requires
 	 the global shared memory to exist. */
@@ -343,17 +346,8 @@ shared_info::initialize ()
 }
 
 void
-memory_init (bool init_cygheap)
+memory_init ()
 {
-  /* Initialize the Cygwin heap, if necessary */
-  if (init_cygheap)
-    {
-      cygheap_init ();
-      cygheap->user.init ();
-      cygheap->init_installation_root (); /* Requires user.init! */
-      cygheap->pg.init ();
-    }
-
   shared_info::create ();	/* Initialize global shared memory */
   user_info::create (false);	/* Initialize per-user shared memory */
   /* Initialize tty list session stuff.  Doesn't really belong here but

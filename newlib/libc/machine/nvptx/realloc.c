@@ -1,33 +1,17 @@
-/* Implement realloc with the help of the malloc and free.
-
-   The CUDA runtime provides malloc and free, but not realloc.  The
-   compiler renames the user's malloc & free so we don't directly call
-   the CUDA implementations.  We provide wrappers for those functions
-   that store a size cookie that we can use here.  Inspection of the
-   CUDA malloced area didn't show an obvious cookie we could use.  The
-   cookie is of type  size_t, but placed at a long long boundary to
-   maintain alignment of the value returned  to the user.
-
-   Copyright (C) 2014-2016 Free Software Foundation, Inc.
-
-   This file is free software; you can redistribute it and/or modify it
-   under the terms of the GNU General Public License as published by the
-   Free Software Foundation; either version 3, or (at your option) any
-   later version.
-
-   This file is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   General Public License for more details.
-
-   Under Section 7 of GPL version 3, you are granted additional
-   permissions described in the GCC Runtime Library Exception, version
-   3.1, as published by the Free Software Foundation.
-
-   You should have received a copy of the GNU General Public License and
-   a copy of the GCC Runtime Library Exception along with this program;
-   see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
-   <http://www.gnu.org/licenses/>.  */
+/*
+ * Support file for nvptx in newlib.
+ * Copyright (c) 2016-2018 Mentor Graphics.
+ *
+ * The authors hereby grant permission to use, copy, modify, distribute,
+ * and license this software and its documentation for any purpose, provided
+ * that existing copyright notices are retained in all copies and that this
+ * notice is included verbatim in any distributions. No written agreement,
+ * license, or royalty fee is required for any of the authorized uses.
+ * Modifications to this software may be copyrighted by their authors
+ * and need not follow the licensing terms described here, provided that
+ * the new terms are clearly indicated on the first page of each file where
+ * they apply.
+ */
 
 #include <stdlib.h>
 

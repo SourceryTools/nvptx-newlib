@@ -1,8 +1,5 @@
 /* regtool.cc
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011 Red Hat Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -42,6 +39,7 @@ static struct option longopts[] =
   {"dword", no_argument, NULL, 'd' },
   {"dword-be", no_argument, NULL, 'D' },
   {"expand-string", no_argument, NULL, 'e' },
+  {"force", no_argument, NULL, 'f' },
   {"help", no_argument, NULL, 'h' },
   {"integer", no_argument, NULL, 'i' },
   {"keys", no_argument, NULL, 'k'},
@@ -61,7 +59,7 @@ static struct option longopts[] =
   {NULL, 0, NULL, 0}
 };
 
-static char opts[] = "bdDehiklmnpqQsvVwWxK:";
+static char opts[] = "bdDefhiklmnpqQsvVwWxK:";
 
 const char *types[] =
 {
@@ -85,6 +83,7 @@ int verbose = 0;
 int quiet = 0;
 int hex = 0;
 DWORD wow64 = 0;
+DWORD restore_flags = 0;
 char **argv;
 
 HKEY key;
@@ -112,22 +111,23 @@ usage (FILE *where = stderr)
       " unset KEY\\VALUE            removes VALUE from KEY\n"
       " load KEY\\SUBKEY PATH       load hive from PATH into new SUBKEY\n"
       " unload KEY\\SUBKEY          unload hive and remove SUBKEY\n"
-      " save KEY\\SUBKEY PATH       save SUBKEY into new hive PATH\n"
+      " save KEY\\SUBKEY PATH       save SUBKEY into new file PATH\n"
+      " restore KEY\\SUBKEY PATH    restore SUBKEY from file PATH\n"
       "\n");
       fprintf (where, ""
-      "Options for 'list' Action:\n"
+      "Options for 'list' action:\n"
       "\n"
       " -k, --keys           print only KEYs\n"
       " -l, --list           print only VALUEs\n"
       " -p, --postfix        like ls -p, appends '\\' postfix to KEY names\n"
       "\n"
-      "Options for 'get' Action:\n"
+      "Options for 'get' action:\n"
       "\n"
       " -b, --binary         print data as printable hex bytes\n"
       " -n, --none           print data as stream of bytes as stored in registry\n"
       " -x, --hex            print numerical data as hex numbers\n"
       "\n"
-      "Options for 'set' Action:\n"
+      "Options for 'set' action:\n"
       "\n"
       " -b, --binary         set type to REG_BINARY (hex args or '-')\n"
       " -d, --dword          set type to REG_DWORD\n"
@@ -142,6 +142,11 @@ usage (FILE *where = stderr)
       "Options for 'set' and 'unset' Actions:\n"
       "\n"
       " -K<c>, --key-separator[=]<c>  set key-value separator to <c> instead of '\\'\n"
+      "\n"
+      "Options for 'restore' action:\n"
+      "\n"
+      " -f, --force    restore even if open handles exist at or beneath the location\n"
+      "                in the registry hierarchy to which KEY\\SUBKEY points\n"
       "\n"
       "Other Options:\n"
       "\n"
@@ -180,7 +185,7 @@ print_version ()
 {
   printf ("regtool (cygwin) %d.%d.%d\n"
 	  "Registry tool\n"
-	  "Copyright (C) 2000 - %s Red Hat, Inc.\n"
+	  "Copyright (C) 2000 - %s Cygwin Authors\n"
 	  "This is free software; see the source for copying conditions.  There is NO\n"
 	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
 	  CYGWIN_VERSION_DLL_MAJOR / 1000,
@@ -192,13 +197,14 @@ print_version ()
 void
 Fail (unsigned int rv)
 {
-  char *buf;
+  wchar_t *buf;
+
   if (!quiet)
     {
-      FormatMessage (FORMAT_MESSAGE_ALLOCATE_BUFFER
-		     | FORMAT_MESSAGE_FROM_SYSTEM,
-		     0, rv, 0, (CHAR *) & buf, 0, 0);
-      fprintf (stderr, "Error (%d): %s\n", rv, buf);
+      FormatMessageW (FORMAT_MESSAGE_ALLOCATE_BUFFER
+		      | FORMAT_MESSAGE_FROM_SYSTEM,
+		      0, rv, 0, (WCHAR *)& buf, 0, 0);
+      fprintf (stderr, "Error (%d): %ls\n", rv, buf);
       LocalFree (buf);
     }
   exit (1);
@@ -838,25 +844,6 @@ cmd_unload ()
   return 0;
 }
 
-DWORD
-set_privilege (const char *name)
-{
-  TOKEN_PRIVILEGES tp;
-  if (!LookupPrivilegeValue (NULL, name, &tp.Privileges[0].Luid))
-    return GetLastError ();
-  tp.PrivilegeCount = 1;
-  tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-  HANDLE t;
-  /* OpenProcessToken does not work here, because main thread has its own
-     impersonation token */
-  if (!OpenThreadToken (GetCurrentThread (), TOKEN_ADJUST_PRIVILEGES, FALSE, &t))
-    return GetLastError ();
-  AdjustTokenPrivileges (t, FALSE, &tp, 0, NULL, NULL);
-  DWORD rv = GetLastError ();
-  CloseHandle (t);
-  return rv;
-}
-
 int
 cmd_save ()
 {
@@ -865,14 +852,33 @@ cmd_save ()
       usage ();
       return 1;
     }
-  /* try to set SeBackupPrivilege, let RegSaveKey report the error */
-  set_privilege (SE_BACKUP_NAME);
   /* REG_OPTION_BACKUP_RESTORE is necessary to save /HKLM/SECURITY */
   find_key (1, KEY_QUERY_VALUE, REG_OPTION_BACKUP_RESTORE);
   ssize_t len = cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], NULL, 0);
   wchar_t win32_path[len];
   cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], win32_path, len);
   DWORD rv = RegSaveKeyW (key, win32_path, NULL);
+  if (rv != ERROR_SUCCESS)
+    Fail (rv);
+  if (verbose)
+    printf ("key saved to %ls\n", win32_path);
+  return 0;
+}
+
+int
+cmd_restore ()
+{
+  if (!argv[1])
+    {
+      usage ();
+      return 1;
+    }
+  /* REG_OPTION_BACKUP_RESTORE is necessary to restore /HKLM/SECURITY */
+  find_key (1, KEY_ALL_ACCESS, REG_OPTION_BACKUP_RESTORE);
+  ssize_t len = cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], NULL, 0);
+  wchar_t win32_path[len];
+  cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], win32_path, len);
+  DWORD rv = RegRestoreKeyW (key, win32_path, restore_flags);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
   if (verbose)
@@ -896,6 +902,7 @@ static struct
   {"load", cmd_load},
   {"unload", cmd_unload},
   {"save", cmd_save},
+  {"restore", cmd_restore},
   {0, 0}
 };
 
@@ -922,6 +929,9 @@ main (int argc, char **_argv)
 	  break;
 	case 'e':
 	  value_type = REG_EXPAND_SZ;
+	  break;
+	case 'f':
+	  restore_flags = REG_FORCE_RESTORE;
 	  break;
 	case 'k':
 	  listwhat |= LIST_KEYS;

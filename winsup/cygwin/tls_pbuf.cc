@@ -1,14 +1,11 @@
 /* tls_pbuf.cc
 
-   Copyright 2008, 2010, 2014 Red Hat, Inc.
-
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include <winsup.h>
 #include <malloc.h>
-#include "cygtls.h"
 #include "tls_pbuf.h"
 
 #define tls_pbuf	_my_tls.locals.pathbufs
@@ -16,21 +13,10 @@ details. */
 void
 tls_pathbuf::destroy ()
 {
-  for (unsigned i = 0; i < TP_NUM_C_BUFS && c_buf[i]; ++i)
+  for (uint32_t i = 0; i < TP_NUM_C_BUFS && c_buf[i]; ++i)
     free (c_buf[i]);
-  for (unsigned i = 0; i < TP_NUM_W_BUFS && w_buf[i]; ++i)
+  for (uint32_t i = 0; i < TP_NUM_W_BUFS && w_buf[i]; ++i)
     free (w_buf[i]);
-}
-
-tmp_pathbuf::tmp_pathbuf ()
-: c_buf_old (tls_pbuf.c_cnt),
-  w_buf_old (tls_pbuf.w_cnt)
-{}
-
-tmp_pathbuf::~tmp_pathbuf ()
-{
-  tls_pbuf.c_cnt = c_buf_old;
-  tls_pbuf.w_cnt = w_buf_old;
 }
 
 char *

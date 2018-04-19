@@ -10,20 +10,10 @@ INDEX
 INDEX
         acosf
 
-ANSI_SYNOPSIS
+SYNOPSIS
         #include <math.h>
         double acos(double <[x]>);
         float acosf(float <[x]>);
-
-TRAD_SYNOPSIS
-        #include <math.h>
-        double acos(<[x]>)
-        double <[x]>;
-
-        float acosf(<[x]>)
-        float <[x]>;
-
-
 
 DESCRIPTION
 
@@ -50,7 +40,8 @@ o $\pi$.
         You can modify error handling for these functions using <<matherr>>.
 
 
-QUICKREF ANSI SVID POSIX RENTRANT
+QUICKREF
+ ansi svid posix rentrant
  acos    y,y,y,m
  acosf   n,n,n,m
 
@@ -84,8 +75,7 @@ MATHREF
 #ifndef _DOUBLE_IS_32BITS
 
 double
-_DEFUN (acos, (double),
-        double x)
+acos (double x)
 {
   return (asine (x, 1));
 }

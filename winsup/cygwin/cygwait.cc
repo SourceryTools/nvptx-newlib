@@ -1,7 +1,5 @@
 /* cygwait.h
 
-   Copyright 2011, 2012, 2013 Red Hat, Inc.
-
    This file is part of Cygwin.
 
    This software is a copyrighted work licensed under the terms of the
@@ -18,8 +16,10 @@
 #define is_cw_sig		(mask & cw_sig)
 #define is_cw_sig_eintr		(mask & cw_sig_eintr)
 #define is_cw_sig_cont		(mask & cw_sig_cont)
+#define is_cw_sig_restart	(mask & cw_sig_restart)
 
-#define is_cw_sig_handle	(mask & (cw_sig | cw_sig_eintr | cw_sig_cont))
+#define is_cw_sig_handle	(mask & (cw_sig | cw_sig_eintr \
+					 | cw_sig_cont | cw_sig_restart))
 
 LARGE_INTEGER cw_nowait_storage;
 
@@ -38,8 +38,9 @@ cygwait (HANDLE object, PLARGE_INTEGER timeout, unsigned mask)
   if (object)
     wait_objects[num++] = object;
 
-  set_signal_arrived thread_waiting (is_cw_sig_handle, wait_objects[num]);
-  debug_only_printf ("object %p, thread waiting %d, signal_arrived %p", object, (int) thread_waiting, _my_tls.signal_arrived);
+  wait_signal_arrived thread_waiting (is_cw_sig_handle, wait_objects[num]);
+  debug_only_printf ("object %p, thread waiting %d, signal_arrived %p",
+		     object, (int) thread_waiting, _my_tls.signal_arrived);
   DWORD sig_n;
   if (!thread_waiting)
     sig_n = WAIT_TIMEOUT + 1;
@@ -87,9 +88,10 @@ cygwait (HANDLE object, PLARGE_INTEGER timeout, unsigned mask)
 	  if (!sig)
 	    continue;
 	  if (is_cw_sig_eintr || (is_cw_sig_cont && sig == SIGCONT))
-	    res = WAIT_SIGNALED;	/* caller will deal with signals */
-	  else if (_my_tls.call_signal_handler ())
+	    ;
+	  else if (_my_tls.call_signal_handler () || is_cw_sig_restart)
 	    continue;
+	  res = WAIT_SIGNALED;	/* caller will deal with signals */
 	}
       break;
     }

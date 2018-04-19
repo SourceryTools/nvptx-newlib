@@ -10,18 +10,10 @@ acosh
 INDEX
 acoshf
 
-ANSI_SYNOPSIS
+SYNOPSIS
         #include <math.h>
         double acosh(double <[x]>);
         float acoshf(float <[x]>);
-
-TRAD_SYNOPSIS
-        #include <math.h>
-        double acosh(<[x]>)
-        double <[x]>;
-
-        float acoshf(<[x]>)
-        float <[x]>;
 
 DESCRIPTION
 <<acosh>> calculates the inverse hyperbolic cosine of <[x]>.
@@ -49,7 +41,8 @@ Neither <<acosh>> nor <<acoshf>> are ANSI C.  They are not recommended
 for portable programs.
 
 
-QUICKREF ANSI SVID POSIX RENTRANT
+QUICKREF
+ ansi svid posix rentrant
  acos    n,n,n,m
  acosf   n,n,n,m
 

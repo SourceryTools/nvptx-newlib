@@ -1,7 +1,5 @@
 /* winlean.h - Standard "lean" windows include
 
-   Copyright 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -20,6 +18,7 @@ details. */
    autoloaded symbols, which in turn clashes with the definition in the
    w32api library exporting the symbols. */
 #define _ADVAPI32_
+#define _AUTHZ_
 #define _DSGETDCAPI_
 #define _GDI32_
 #define _KERNEL32_
@@ -28,6 +27,7 @@ details. */
 #define _SHELL32_
 #define _SPOOL32_
 #define _USER32_
+#define _USERENV_
 #define _WINMM_
 #define WINIMPM
 #define WINSOCK_API_LINKAGE
@@ -74,12 +74,16 @@ details. */
 #undef CRITICAL
 #endif
 
-/* So-called "Microsoft Account" SIDs have a netbios domain name
-   "MicrosoftAccounts".  The problem is, while DNLEN is 15, that domain
-   name is 16 chars :-P  So we override DNLEN here to be 16, so that calls
-   to LookupAccountSid/Name don't fail if the buffer is based on DNLEN. */
+/* So-called "Microsoft Account" SIDs (S-1-11-...) have a netbios domain name
+   "MicrosoftAccounts".  The new "Application Container SIDs" (S-1-15-...)
+   have a netbios domain name "APPLICATION PACKAGE AUTHORITY"
+   
+   The problem is, DNLEN is 15, but these domain names have a length of 16
+   resp. 29 chars :-P  So we override DNLEN here to be 31, so that calls
+   to LookupAccountSid/Name don't fail if the buffer is based on DNLEN.
+   Hope that's enough for a while... */
 #undef DNLEN
-#define DNLEN 16
+#define DNLEN 31
 
 /* When Terminal Services are installed, the GetWindowsDirectory function
    does not return the system installation dir, but a user specific directory

@@ -1,15 +1,12 @@
 /* exception.h
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2005, 2010, 2011, 1012, 2013, 2014
-   Red Hat, Inc.
-
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #pragma once
 
-#ifndef __x86_64__
+#ifdef __i386__
 /* Documentation on the innards of 32 bit Windows exception handling (i.e.
    from the perspective of a compiler implementor) apparently doesn't exist.
    However, the following came from Onno Hovers <onno@stack.urc.tue.nl>
@@ -94,8 +91,10 @@ to install your own exception filter. This one is documented.
    a teensy bit of detail of the innards of exception handling (i.e. what we
    have to do).  */
 
-typedef int (exception_handler) (EXCEPTION_RECORD *, struct _exception_list *,
-				 CONTEXT *, void *);
+typedef EXCEPTION_DISPOSITION (exception_handler) (EXCEPTION_RECORD *,
+						   struct _exception_list *,
+						   CONTEXT *,
+						   void *);
 
 typedef struct _exception_list
 {
@@ -104,70 +103,51 @@ typedef struct _exception_list
 } exception_list;
 
 extern exception_list *_except_list asm ("%fs:0");
-#else
-typedef void exception_list;
-#endif /* !__x86_64 */
+typedef void *PDISPATCHER_CONTEXT;
 
 class exception
 {
-#ifdef __x86_64__
-  static LONG myfault_handle (LPEXCEPTION_POINTERS ep);
-#else
   exception_list el;
   exception_list *save;
-#endif /* __x86_64__ */
-  static int handle (EXCEPTION_RECORD *, exception_list *, CONTEXT *, void *);
+  static EXCEPTION_DISPOSITION handle (EXCEPTION_RECORD *, exception_list *,
+				       CONTEXT *, PDISPATCHER_CONTEXT);
 public:
   exception () __attribute__ ((always_inline))
   {
     /* Install SEH handler. */
-#ifdef __x86_64__
+    save = _except_list;
+    el.handler = handle;
+    el.prev = _except_list;
+    _except_list = &el;
+  };
+  ~exception () __attribute__ ((always_inline)) { _except_list = save; }
+};
+
+#else /* !__i386__ */
+
+#define exception_list void
+typedef struct _DISPATCHER_CONTEXT *PDISPATCHER_CONTEXT;
+
+class exception
+{
+  static EXCEPTION_DISPOSITION myfault (EXCEPTION_RECORD *, exception_list *,
+					CONTEXT *, PDISPATCHER_CONTEXT);
+  static EXCEPTION_DISPOSITION handle (EXCEPTION_RECORD *, exception_list *,
+				       CONTEXT *, PDISPATCHER_CONTEXT);
+public:
+  exception () __attribute__ ((always_inline))
+  {
+    /* Install SEH handler. */
     asm volatile ("\n\
     1:									\n\
       .seh_handler							  \
-	_ZN9exception6handleEP17_EXCEPTION_RECORDPvP8_CONTEXTS2_,	  \
+	_ZN9exception6handleEP17_EXCEPTION_RECORDPvP8_CONTEXTP19_DISPATCHER_CONTEXT,	  \
 	@except								\n\
       .seh_handlerdata							\n\
       .long 1								\n\
       .rva 1b, 2f, 2f, 2f						\n\
       .seh_code								\n");
-#else
-    save = _except_list;
-    el.handler = handle;
-    el.prev = _except_list;
-    _except_list = &el;
-#endif /* __x86_64__ */
   };
-#ifdef __x86_64__
-  static void install_myfault_handler () __attribute__ ((always_inline))
-  {
-    /* Install myfault exception handler as VEH.  Here's what happens:
-       Some Windows DLLs (advapi32, for instance) are using SEH to catch
-       exceptions inside its own functions.  If we install a VEH handler
-       to catch all exceptions, our Cygwin VEH handler would illegitimatly
-       handle exceptions inside of Windows DLLs which are usually handled
-       by its own SEH handler.  So, for standard exceptions we use an SEH
-       handler as installed in the constructor above so as not to override
-       the SEH handlers in Windows DLLs.
-       But we have a special case, myfault handling.  The myfault handling
-       catches exceptions inside of the Cygwin DLL, some of them entirely
-       expected as in verifyable_object_isvalid.  The ultimately right thing
-       to do would be to install SEH handlers for each of these cases.
-       But there are two problems with that:
-
-       1. It would be a massive and, partially unreliable change in the
-          calling functions due to the incomplete SEH support in GCC.
-
-       2. It doesn't always work.  Certain DLLs appear to call Cygwin
-	  functions during DLL initialization while the SEH handler is
-	  not installed in the active call frame.  For these cases we
-	  need a more generic approach.
-       
-       So, what we do here is to install a myfault VEH handler.  This
-       function is called from dll_crt0_0, so the myfault handler is
-       available very early. */
-    AddVectoredExceptionHandler (1, myfault_handle);
-  }
   ~exception () __attribute__ ((always_inline))
   {
     asm volatile ("\n\
@@ -175,10 +155,11 @@ public:
     2:									\n\
       nop								\n");
   }
-#else
-  ~exception () __attribute__ ((always_inline)) { _except_list = save; }
-#endif /* !__x86_64__ */
 };
+
+LONG CALLBACK myfault_altstack_handler (EXCEPTION_POINTERS *);
+
+#endif /* __i386__ */
 
 class cygwin_exception
 {
@@ -193,4 +174,5 @@ public:
     framep (in_framep), ctx (in_ctx), e (in_e), h (NULL) {}
   void dumpstack ();
   PCONTEXT context () const {return ctx;}
+  EXCEPTION_RECORD *exception_record () const {return e;}
 };

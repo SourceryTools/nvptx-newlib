@@ -1,8 +1,5 @@
 /* grp.cc
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
    Original stubs by Jason Molenda of Cygnus Support, crash@cygnus.com
    First implementation by Gunther Ebert, gunther.ebert@ixos-leipzig.de
 
@@ -14,6 +11,7 @@ details. */
 
 #include "winsup.h"
 #include <lm.h>
+#include <ntsecapi.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +44,9 @@ pwdgrp::parse_group ()
     return false;
   /* Don't generate gr_mem entries. */
   grp.g.gr_mem = &null_ptr;
-  grp.sid.getfromgr (&grp.g);
+  cygsid csid;
+  if (csid.getfromgr_passwd (&grp.g))
+    RtlCopySid (SECURITY_MAX_SID_SIZE, grp.sid, csid);
   return true;
 }
 
@@ -114,6 +114,56 @@ internal_getgrsid (cygpsid &sid, cyg_ldap *pldap)
     }
   if (cygheap->pg.nss_grp_db ())
     return cygheap->pg.grp_cache.win.add_group_from_windows (sid, pldap);
+  return NULL;
+}
+
+/* Like internal_getgrsid but return only already cached data,
+   NULL otherwise. */
+static struct group *
+internal_getgrsid_cachedonly (cygpsid &sid)
+{
+  struct group *ret;
+
+  /* Check caches only. */
+  if (cygheap->pg.nss_cygserver_caching ()
+      && (ret = cygheap->pg.grp_cache.cygserver.find_group (sid)))
+    return ret;
+  if (cygheap->pg.nss_grp_files ()
+      && (ret = cygheap->pg.grp_cache.file.find_group (sid)))
+    return ret;
+  if (cygheap->pg.nss_grp_db ()
+      && (ret = cygheap->pg.grp_cache.win.find_group (sid)))
+    return ret;
+  return NULL;
+}
+
+/* Called from internal_getgroups.  The full information required to create
+   a group account entry is already available from the LookupAccountSids
+   call.  internal_getgrfull passes all available info into
+   pwdgrp::fetch_account_from_line, thus avoiding a LookupAccountSid call
+   for each group.  This is quite a bit faster, especially in slower
+   environments. */
+static struct group * __attribute__((used))
+internal_getgrfull (fetch_acc_t &full_acc, cyg_ldap *pldap)
+{
+  struct group *ret;
+
+  cygheap->pg.nss_init ();
+  /* Skip local caches, internal_getgroups already called
+     internal_getgrsid_cachedonly. */
+  if (cygheap->pg.nss_cygserver_caching ()
+      && (ret = cygheap->pg.grp_cache.cygserver.add_group_from_cygserver
+      							(full_acc.sid)))
+    return ret;
+  if (cygheap->pg.nss_grp_files ())
+    {
+      cygheap->pg.grp_cache.file.check_file ();
+      if ((ret = cygheap->pg.grp_cache.file.add_group_from_file
+      							(full_acc.sid)))
+	return ret;
+    }
+  if (cygheap->pg.nss_grp_db ())
+    return cygheap->pg.grp_cache.win.add_group_from_windows (full_acc, pldap);
   return NULL;
 }
 
@@ -187,7 +237,7 @@ internal_getgrgid (gid_t gid, cyg_ldap *pldap)
   return NULL;
 }
 
-#ifndef __x86_64__
+#ifdef __i386__
 static struct __group16 *
 grp32togrp16 (struct __group16 *gp16, struct group *gp32)
 {
@@ -498,8 +548,15 @@ internal_getgroups (int gidsetsize, gid_t *grouplist, cyg_ldap *pldap)
   NTSTATUS status;
   HANDLE tok;
   ULONG size;
-  int cnt = 0;
+  PTOKEN_GROUPS groups;
+  PSID *sidp_buf;
+  ULONG scnt;
+  PLSA_REFERENCED_DOMAIN_LIST dlst = NULL;
+  PLSA_TRANSLATED_NAME nlst = NULL;
+
+  tmp_pathbuf tp;
   struct group *grp;
+  int cnt = 0;
 
   if (cygheap->user.groups.issetgroups ())
     {
@@ -511,48 +568,129 @@ internal_getgroups (int gidsetsize, gid_t *grouplist, cyg_ldap *pldap)
 	      grouplist[cnt] = grp->gr_gid;
 	    ++cnt;
 	    if (gidsetsize && cnt > gidsetsize)
-	      goto error;
+	      {
+		cnt = -1;
+		break;
+	      }
 	  }
-      return cnt;
+      goto out;
     }
 
   /* If impersonated, use impersonation token. */
-  tok = cygheap->user.issetuid () ? cygheap->user.primary_token () : hProcToken;
+  tok = cygheap->user.issetuid () ? cygheap->user.primary_token ()
+				  : hProcToken;
 
-  status = NtQueryInformationToken (tok, TokenGroups, NULL, 0, &size);
-  if (NT_SUCCESS (status) || status == STATUS_BUFFER_TOO_SMALL)
+  /* Fetch groups from user token. */
+  groups = (PTOKEN_GROUPS) tp.w_get ();
+  status = NtQueryInformationToken (tok, TokenGroups, groups, 2 * NT_MAX_PATH,
+				    &size);
+  if (!NT_SUCCESS (status))
     {
-      PTOKEN_GROUPS groups = (PTOKEN_GROUPS) alloca (size);
-
-      status = NtQueryInformationToken (tok, TokenGroups, groups, size, &size);
+      debug_printf ("NtQueryInformationToken(TokenGroups) %y", status);
+      goto out;
+    }
+  /* Iterate over the group list and check which of them are already cached.
+     Those are simply copied to grouplist.  The non-cached ones are collected
+     in sidp_buf for a later call to LsaLookupSids. */
+  sidp_buf = (PSID *) tp.w_get ();
+  scnt = 0;
+  for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+    {
+      cygpsid sid = groups->Groups[pg].Sid;
+      if ((groups->Groups[pg].Attributes
+	  & (SE_GROUP_ENABLED | SE_GROUP_INTEGRITY_ENABLED)) == 0
+	  || sid == well_known_world_sid)
+	continue;
+      if ((grp = internal_getgrsid_cachedonly (sid)))
+	{
+	  if (cnt < gidsetsize)
+	    grouplist[cnt] = grp->gr_gid;
+	  ++cnt;
+	  if (gidsetsize && cnt > gidsetsize)
+	    {
+	      cnt = -1;
+	      goto out;
+	    }
+	}
+      else 
+	sidp_buf[scnt++] = sid;
+    }
+  /* If there are non-cached groups left, try to fetch them. */
+  if (scnt > 0)
+    {
+      /* Don't call LsaLookupSids if we're not utilizing the Windows account
+	 DBs.  If we don't have access to the AD, which is one good reason to
+	 disable passwd/group: db in nsswitch.conf, then the subsequent call
+	 to LsaLookupSids will take 5 - 10 seconds in some environments. */
+      if (!cygheap->pg.nss_grp_db ())
+	{
+	  for (DWORD pg = 0; pg < scnt; ++pg)
+	    {
+	      cygpsid sid = sidp_buf[pg];
+	      if ((grp = internal_getgrsid (sid, NULL)))
+		{
+		  if (cnt < gidsetsize)
+		    grouplist[cnt] = grp->gr_gid;
+		  ++cnt;
+		  if (gidsetsize && cnt > gidsetsize)
+		    {
+		      cnt = -1;
+		      break;
+		    }
+		}
+	    }
+	  goto out;
+	}
+      /* Otherwise call LsaLookupSids and call internal_getgrfull on the
+	 returned groups.  This performs a lot better than calling
+	 internal_getgrsid on each group. */
+      status = STATUS_ACCESS_DENIED;
+      HANDLE lsa = lsa_open_policy (NULL, POLICY_LOOKUP_NAMES);
+      if (!lsa)
+	{
+	  debug_printf ("POLICY_LOOKUP_NAMES right not given?");
+	  goto out;
+	}
+      status = LsaLookupSids (lsa, scnt, sidp_buf, &dlst, &nlst);
+      lsa_close_policy (lsa);
       if (NT_SUCCESS (status))
 	{
-	  for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+	  for (ULONG ncnt = 0; ncnt < scnt; ++ncnt)
 	    {
-	      cygpsid sid = groups->Groups[pg].Sid;
-	      if ((grp = internal_getgrsid (sid, pldap)))
+	      static UNICODE_STRING empty = { 0, 0, (PWSTR) L"" };
+	      fetch_acc_t full_acc =
 		{
-		  if ((groups->Groups[pg].Attributes
-		      & (SE_GROUP_ENABLED | SE_GROUP_INTEGRITY_ENABLED))
-		      && sid != well_known_world_sid)
+		  .sid = sidp_buf[ncnt],
+		  .name = &nlst[ncnt].Name,
+		  .dom = &empty,
+		  .acc_type = nlst[ncnt].Use
+		};
+
+	      if (nlst[ncnt].DomainIndex >= 0)
+	        full_acc.dom = &dlst->Domains[nlst[ncnt].DomainIndex].Name;
+	      if ((grp = internal_getgrfull (full_acc, pldap)))
+		{
+		  if (cnt < gidsetsize)
+		    grouplist[cnt] = grp->gr_gid;
+		  ++cnt;
+		  if (gidsetsize && cnt > gidsetsize)
 		    {
-		      if (cnt < gidsetsize)
-			grouplist[cnt] = grp->gr_gid;
-		      ++cnt;
-		      if (gidsetsize && cnt > gidsetsize)
-			goto error;
+		      cnt = -1;
+		      break;
 		    }
 		}
 	    }
 	}
     }
-  else
-    debug_printf ("%u = NtQueryInformationToken(NULL) %y", size, status);
-  return cnt;
 
-error:
-  set_errno (EINVAL);
-  return -1;
+out:
+  if (dlst)
+    LsaFreeMemory (dlst);
+  if (nlst)
+    LsaFreeMemory (nlst);
+  if (cnt == -1)
+    set_errno (EINVAL);
+  return cnt;
 }
 
 extern "C" int
@@ -600,7 +738,7 @@ get_groups (const char *user, gid_t gid, cygsidlist &gsids)
   struct group *grp = internal_getgrgid (gid, &cldap);
   cygsid usersid, grpsid;
   if (usersid.getfrompw (pw))
-    get_server_groups (gsids, usersid, pw);
+    get_server_groups (gsids, usersid);
   if (gid != ILLEGAL_GID && grpsid.getfromgr (grp))
     gsids += grpsid;
   cygheap->user.reimpersonate ();
@@ -699,9 +837,7 @@ setgroups32 (int ngroups, const gid_t *grouplist)
   return 0;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setgroups32, setgroups)
-#else
+#ifdef __i386__
 extern "C" int
 setgroups (int ngroups, const __gid16_t *grouplist)
 {
@@ -717,4 +853,6 @@ setgroups (int ngroups, const __gid16_t *grouplist)
     }
   return setgroups32 (ngroups, grouplist32);
 }
+#else
+EXPORT_ALIAS (setgroups32, setgroups)
 #endif

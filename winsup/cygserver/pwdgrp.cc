@@ -1,7 +1,5 @@
 /* pwdgrp.cc: Request account information
 
-   Copyright 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -48,6 +46,8 @@ client_request_pwdgrp::pwd_serve ()
     case ID_arg:
       pwd = getpwuid (_parameters.in.arg.id);
       break;
+    default:
+      break;
     }
   if (pwd)
     msglen (snprintf (_parameters.out.line, sizeof _parameters.out.line,
@@ -79,6 +79,8 @@ client_request_pwdgrp::pwd_serve ()
 	case ID_arg:
 	  debug_printf ("User <%u> failed", _parameters.in.arg.id);
 	  break;
+	default:
+	  break;
 	}
       _parameters.out.line[0] = '\0';
       msglen (0);
@@ -102,6 +104,8 @@ client_request_pwdgrp::grp_serve ()
       break;
     case ID_arg:
       grp = getgrgid (_parameters.in.arg.id);
+      break;
+    default:
       break;
     }
   if (grp)
@@ -129,6 +133,8 @@ client_request_pwdgrp::grp_serve ()
 	  break;
 	case ID_arg:
 	  debug_printf ("Group <%u> failed", _parameters.in.arg.id);
+	  break;
+	default:
 	  break;
 	}
       _parameters.out.line[0] = '\0';

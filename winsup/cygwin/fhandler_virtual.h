@@ -1,7 +1,5 @@
 /* fhandler_virtual.h: Header for virtual fhandlers
 
-   Copyright 2009, 2010, 2011 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -20,3 +18,26 @@ struct virt_tab_t {
 
 extern virt_tab_t *virt_tab_search (const char *, bool, const virt_tab_t *,
 				    size_t);
+
+static inline unsigned char
+virt_ftype_to_dtype (virtual_ftype_t type)
+{
+  unsigned char d_type;
+
+  switch (type) 
+    {
+    case virt_directory:
+      d_type = DT_DIR;
+      break;
+    case virt_symlink:
+      d_type = DT_LNK;
+      break;
+    case virt_file:
+      d_type = DT_REG;
+      break;
+    default:
+      d_type = DT_UNKNOWN;
+      break;
+    }
+  return d_type;
+}

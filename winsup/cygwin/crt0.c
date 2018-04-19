@@ -1,7 +1,5 @@
 /* crt0.c
 
-   Copyright 2001, 2003, 2004, 2005, 2010, 2011 Red Hat, Inc.
-
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
@@ -22,7 +20,13 @@ void
 mainCRTStartup ()
 {
 #ifdef __i386__
+#if __GNUC_PREREQ(6,0)
+#pragma GCC diagnostic ignored "-Wframe-address"
+#endif
   (void)__builtin_return_address(1);
+#if __GNUC_PREREQ(6,0)
+#pragma GCC diagnostic pop
+#endif
   asm volatile ("andl $-16,%%esp" ::: "%esp");
 #endif
 

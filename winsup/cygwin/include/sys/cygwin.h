@@ -1,7 +1,5 @@
-/* sys/cygwin.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
+/* sys/cygwin.h
 
 This file is part of Cygwin.
 
@@ -22,26 +20,26 @@ extern "C" {
 
 #define _CYGWIN_SIGNAL_STRING "cYgSiGw00f"
 
-#ifndef __x86_64__
+#ifdef __i386__
 /* DEPRECATED INTERFACES.  These are restricted to MAX_PATH length.
    Don't use in modern applications.  They don't exist on x86_64. */
 extern int cygwin_win32_to_posix_path_list (const char *, char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_win32_to_posix_path_list_buf_size (const char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_posix_to_win32_path_list (const char *, char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_posix_to_win32_path_list_buf_size (const char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_conv_to_win32_path (const char *, char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_conv_to_full_win32_path (const char *, char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_conv_to_posix_path (const char *, char *)
-  __attribute__ ((deprecated));
+  __attribute__ ((__deprecated__));
 extern int cygwin_conv_to_full_posix_path (const char *, char *)
-  __attribute__ ((deprecated));
-#endif /* !__x86_64__ */
+  __attribute__ ((__deprecated__));
+#endif /* __i386__ */
 
 /* Use these interfaces in favor of the above. */
 
@@ -56,8 +54,12 @@ enum
   CCP_CONVTYPE_MASK = 3,
 
   /* Or these values to the above as needed. */
-  CCP_ABSOLUTE = 0,	  /* Request absolute path (default). */
-  CCP_RELATIVE = 0x100    /* Request to keep path relative.   */
+  CCP_ABSOLUTE = 0,	  	/* Request absolute path (default). 	*/
+  CCP_RELATIVE = 0x100,    	/* Request to keep path relative.   	*/
+  CCP_PROC_CYGDRIVE = 0x200,   	/* Request to return /proc/cygdrive
+				   path (only with CCP_*_TO_POSIX).   */
+
+  CCP_CONVFLAGS_MASK = 0x300,
 };
 typedef unsigned int cygwin_conv_path_t;
 
@@ -150,7 +152,12 @@ typedef enum
     CW_GETNSSSEP,
     CW_GETPWSID,
     CW_GETGRSID,
-    CW_CYGNAME_FROM_WINNAME
+    CW_CYGNAME_FROM_WINNAME,
+    CW_FIXED_ATEXIT,
+    CW_GETNSS_PWD_SRC,
+    CW_GETNSS_GRP_SRC,
+    CW_EXCEPTION_RECORD_FROM_SIGINFO_T,
+    CW_CYGHEAP_PROFTHR_ALL,
   } cygwin_getinfo_types;
 
 #define CW_LOCK_PINFO CW_LOCK_PINFO
@@ -208,12 +215,24 @@ typedef enum
 #define CW_GETPWSID CW_GETPWSID
 #define CW_GETGRSID CW_GETGRSID
 #define CW_CYGNAME_FROM_WINNAME CW_CYGNAME_FROM_WINNAME
+#define CW_FIXED_ATEXIT CW_FIXED_ATEXIT
+#define CW_GETNSS_PWD_SRC CW_GETNSS_PWD_SRC
+#define CW_GETNSS_GRP_SRC CW_GETNSS_GRP_SRC
+#define CW_EXCEPTION_RECORD_FROM_SIGINFO_T CW_EXCEPTION_RECORD_FROM_SIGINFO_T
+#define CW_CYGHEAP_PROFTHR_ALL CW_CYGHEAP_PROFTHR_ALL
 
 /* Token type for CW_SET_EXTERNAL_TOKEN */
 enum
 {
   CW_TOKEN_IMPERSONATION = 0,
   CW_TOKEN_RESTRICTED    = 1
+};
+
+/* Source type for CW_GETNSS_PWD_SRC and CW_GETNSS_GRP_SRC. */
+enum
+{
+  NSS_SRC_FILES = 1,
+  NSS_SRC_DB = 2
 };
 
 /* Enumeration source constants for CW_SETENT called from mkpasswd/mkgroup. */
@@ -291,7 +310,7 @@ struct per_process
   uint32_t dll_minor;
 
   struct _reent **impure_ptr_ptr;
-#ifndef __x86_64__
+#ifdef __i386__
   char ***envptr;
 #endif
 
@@ -375,11 +394,9 @@ extern void cygwin_premain3 (int, char **, struct per_process *);
 #define EXTERNAL_PINFO_VERSION_32_LP  2
 #define EXTERNAL_PINFO_VERSION EXTERNAL_PINFO_VERSION_32_LP
 
-#ifndef __uid_t_defined
+#ifndef __INSIDE_CYGWIN__
 typedef __uint16_t __uid16_t;
 typedef __uint16_t __gid16_t;
-typedef __uint32_t uid_t;
-typedef __uint32_t gid_t;
 #endif
 
 struct external_pinfo

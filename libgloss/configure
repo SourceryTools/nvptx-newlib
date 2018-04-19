@@ -666,6 +666,7 @@ CCAS
 CCASFLAGS'
 ac_subdirs_all='doc
 aarch64
+arc
 epiphany
 i386
 m32r
@@ -678,6 +679,7 @@ sparc_leon
 sparc
 wince
 mips
+riscv
 rs6000
 mn10200
 mn10300
@@ -688,6 +690,7 @@ crx
 d30v
 fr30
 frv
+ft32
 lm32
 mcore
 mep
@@ -695,6 +698,7 @@ moxie
 microblaze
 mt
 v850
+visium
 xc16x
 xstormy16
 m32c
@@ -705,6 +709,7 @@ arm
 spu
 tic6x
 iq2000
+or1k
 libnosys'
 
 # Initialize some variables set by options.
@@ -2399,6 +2404,10 @@ case "${target}" in
 
 	config_testsuite=true
 	;;
+  arc*-*-*)
+	subdirs="$subdirs arc"
+
+	;;
   epiphany-*-*)
 	subdirs="$subdirs epiphany"
 
@@ -2448,6 +2457,10 @@ case "${target}" in
 	subdirs="$subdirs mips"
 
 	;;
+  riscv*-*-*)
+	subdirs="$subdirs riscv"
+
+	;;
   powerpc-*-*|powerpcle-*-*)
 	subdirs="$subdirs rs6000"
 
@@ -2488,6 +2501,10 @@ case "${target}" in
 	subdirs="$subdirs frv"
 
 	;;
+  ft32*-*-*)
+	subdirs="$subdirs ft32"
+
+	;;
   lm32*-*-*)
 	subdirs="$subdirs lm32"
 
@@ -2516,6 +2533,11 @@ case "${target}" in
         subdirs="$subdirs v850"
 
         ;;
+  visium-*-*)
+	subdirs="$subdirs visium"
+
+	config_testsuite=false
+	;;
   xc16x-*-*)
 	subdirs="$subdirs xc16x"
 
@@ -2558,6 +2580,10 @@ case "${target}" in
 	;;
   iq2000-*-*)
 	subdirs="$subdirs iq2000"
+
+	;;
+  or1k-*-* | or1knd-*-* )
+	subdirs="$subdirs or1k"
 
 	;;
 esac

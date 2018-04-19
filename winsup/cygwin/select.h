@@ -1,8 +1,5 @@
 /* select.h
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -67,18 +64,12 @@ struct select_serial_info: public select_info
   select_serial_info (): select_info () {}
 };
 
-struct select_mailslot_info: public select_info
-{
-  select_mailslot_info (): select_info () {}
-};
-
 class select_stuff
 {
 public:
   enum wait_states
   {
     select_signalled = -3,
-    select_loop = -2,
     select_error = -1,
     select_ok = 0,
     select_set_zero = 1
@@ -92,11 +83,10 @@ public:
   select_pipe_info *device_specific_pipe;
   select_socket_info *device_specific_socket;
   select_serial_info *device_specific_serial;
-  select_mailslot_info *device_specific_mailslot;
 
   bool test_and_set (int, fd_set *, fd_set *, fd_set *);
   int poll (fd_set *, fd_set *, fd_set *);
-  wait_states wait (fd_set *, fd_set *, fd_set *, DWORD);
+  wait_states wait (fd_set *, fd_set *, fd_set *, LONGLONG);
   void cleanup ();
   void destroy ();
 
@@ -104,7 +94,10 @@ public:
   		   windows_used (false), start (0),
 		   device_specific_pipe (NULL),
 		   device_specific_socket (NULL),
-		   device_specific_serial (NULL),
-		   device_specific_mailslot (NULL) {}
+		   device_specific_serial (NULL) {}
 };
+
+extern "C" int cygwin_select (int , fd_set *, fd_set *, fd_set *,
+			      struct timeval *to);
+
 #endif /* _SELECT_H_ */

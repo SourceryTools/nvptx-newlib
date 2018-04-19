@@ -75,6 +75,10 @@
 #define _POINTER_INT short
 #endif
 
+#if defined(__m68k__) || defined(__mc68000__) || defined(__riscv)
+#define _READ_WRITE_RETURN_TYPE _ssize_t
+#endif
+
 #ifdef ___AM29K__
 #define _FLOAT_RET double
 #endif
@@ -88,7 +92,6 @@
 /* we want the reentrancy structure to be returned by a function */
 #define __DYNAMIC_REENT__
 #define HAVE_GETDATE
-#define _HAVE_SYSTYPES
 #define _READ_WRITE_RETURN_TYPE _ssize_t
 #define __LARGE64_FILES 1
 /* we use some glibc header files so turn on glibc large file feature */
@@ -151,6 +154,7 @@
 #define _REENT_SMALL
 #endif
 
+#define __BUFSIZ__ 256
 #define __SMALL_BITFIELDS
 
 #ifdef __MSP430X_LARGE__
@@ -179,6 +183,10 @@
 #ifdef __SPU__
 #define MALLOC_ALIGNMENT 16
 #define __CUSTOM_FILE_IO__
+#endif
+
+#if defined(__or1k__) || defined(__or1knd__)
+#define __DYNAMIC_REENT__
 #endif
 
 /* This block should be kept in sync with GCC's limits.h.  The point
@@ -224,9 +232,6 @@
 
 #if defined(__CYGWIN__)
 #include <cygwin/config.h>
-#if !defined (__STRICT_ANSI__) || (__STDC_VERSION__ >= 199901L)
-#define __USE_XOPEN2K 1
-#endif
 #endif
 
 #if defined(__rtems__)
@@ -234,6 +239,7 @@
 #define _READ_WRITE_RETURN_TYPE _ssize_t
 #define __DYNAMIC_REENT__
 #define _REENT_GLOBAL_ATEXIT
+#define _REENT_GLOBAL_STDIO_STREAMS
 #endif
 
 #ifndef __EXPORT
@@ -268,6 +274,18 @@
 #ifdef _WANT_REENT_SMALL
 #ifndef _REENT_SMALL
 #define _REENT_SMALL
+#endif
+#endif
+
+#ifdef _WANT_REENT_GLOBAL_STDIO_STREAMS
+#ifndef _REENT_GLOBAL_STDIO_STREAMS
+#define _REENT_GLOBAL_STDIO_STREAMS
+#endif
+#endif
+
+#ifdef _WANT_USE_LONG_TIME_T
+#ifndef _USE_LONG_TIME_T
+#define _USE_LONG_TIME_T
 #endif
 #endif
 

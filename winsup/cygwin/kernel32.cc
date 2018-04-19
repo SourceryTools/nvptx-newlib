@@ -1,7 +1,5 @@
 /* kernel32.cc: Win32 replacement functions.
 
-   Copyright 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -311,7 +309,8 @@ CreateFileMappingW (HANDLE hFile, LPSECURITY_ATTRIBUTES lpAttributes,
   OBJECT_ATTRIBUTES attr;
   NTSTATUS status;
   ULONG flags = 0;
-  ACCESS_MASK access = READ_CONTROL | SECTION_QUERY | SECTION_MAP_READ;
+  ACCESS_MASK access = STANDARD_RIGHTS_REQUIRED
+		       | SECTION_QUERY | SECTION_MAP_READ;
   ULONG prot = flProtect & (PAGE_NOACCESS | PAGE_READONLY | PAGE_READWRITE
 			    | PAGE_WRITECOPY | PAGE_EXECUTE
 			    | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE

@@ -43,8 +43,10 @@ MEMORY {
 	IVEC (r)  : ORIGIN = 0x00004, LENGTH = 0x0007c
 	OPT (r)   : ORIGIN = 0x000c0, LENGTH = 0x00004
 	ROM (r)   : ORIGIN = 0x000d8, LENGTH = 0x0ff28
-	RAM (w)   : ORIGIN = 0xfef00, LENGTH = 0x00fe0
-	STACK (w) : ORIGIN = 0xffee0, LENGTH = 0x00002
+/* The G10 variant needs to use RAM for virtual registers.  */
+	RAM (w)   : ORIGIN = 0xfef00, LENGTH = 0x00f20
+	STACK (w) : ORIGIN = 0xffe20, LENGTH = 0x00002
+	SADDR (w) : ORIGIN = 0xffe20, LENGTH = 0x000a0
 }
 
 SECTIONS
@@ -64,7 +66,7 @@ SECTIONS
 
   /* CubeSuite always starts at 0xd8.  */
   .csstart : {
-    *(.csstart)
+    KEEP (*(.csstart))
   } > ROM
 
   /* For code that must be in the first 64k, or could fill unused
@@ -120,11 +122,36 @@ SECTIONS
   } > RAM
   PROVIDE (__bsssize = SIZEOF(.bss));
 
+  /* The __stack_size value of 0x100 is just a guess, but since it is
+     PROVIDEd the user can override it on the command line.  It has to be
+     set here, rather than inside the .stack section, as symbols defined
+     inside sections are only evaluated during the final phase of the link,
+     long after the ASSERT is checked.  An ASSERT referencing a PROVIDED but
+     not yet evaluated symbol will automatically fail.
+
+     FIXME: It would be nice if this value could be automatically set via
+     gcc's -fstack-usage command line option somehow.  */
+  PROVIDE (__stack_size = 0x100);
+
   .stack (ORIGIN (STACK)) :
   {
     PROVIDE (__stack = .);
     *(.stack)
+
+    /* Linker section checking ignores empty sections like
+       this one so we have to have our own test here.  */
+    ASSERT ((__stack > (_end + __stack_size)),
+            "Error: Too much data - no room left for the stack");
   }
+
+  .saddr : {
+    . = ALIGN(2);
+    PROVIDE (__saddrstart = .);
+    *(.saddr)
+    . = ALIGN(2);
+  } >SADDR AT>ROM
+  PROVIDE(__romsaddrstart = LOADADDR(.saddr));
+  PROVIDE (__romsaddrcopysize = SIZEOF(.saddr));
 
   .rodata (MAX(__romdatastart + __romdatacopysize, 0x2000)) : {
     . = ALIGN(2);
@@ -169,6 +196,10 @@ SECTIONS
     KEEP (*(.dtors))
   } > ROM
 
+  .frodata : {
+    *(.frodata)
+  } > ROM
+
   .text           :
   {
     PROVIDE (_start = .);
@@ -186,6 +217,9 @@ SECTIONS
   } > ROM
 
   /* The rest are all not normally part of the runtime image.  */
+
+  /* The rest are all not normally part of the runtime image.  */
+  PROVIDE (__rl78_abs__ = 0);
 
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }
@@ -210,7 +244,7 @@ SECTIONS
   /* DWARF 2 */
   .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
   .debug_abbrev   0 : { *(.debug_abbrev) }
-  .debug_line     0 : { *(.debug_line) }
+  .debug_line     0 : { *(.debug_line .debug_line.* .debug_line_end ) }
   .debug_frame    0 : { *(.debug_frame) }
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }

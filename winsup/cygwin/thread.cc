@@ -1,8 +1,5 @@
 /* thread.cc: Locking and threading module functions
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -36,14 +33,10 @@ details. */
 
 extern "C" void __fp_lock_all ();
 extern "C" void __fp_unlock_all ();
-extern "C" int valid_sched_parameters(const struct sched_param *);
+extern "C" bool valid_sched_parameters(const struct sched_param *);
+extern "C" int sched_get_thread_priority(HANDLE thread);
 extern "C" int sched_set_thread_priority(HANDLE thread, int priority);
-#if __GNUC__ == 4 && __GNUC_MINOR__ >= 7
-/* FIXME: Temporarily workaround gcc 4.7+ bug. */
-static verifyable_object_state
-#else
 static inline verifyable_object_state
-#endif
   verifyable_object_isvalid (void const * objectptr, thread_magic_t magic,
 			     void *static_ptr1 = NULL,
 			     void *static_ptr2 = NULL,
@@ -54,6 +47,17 @@ extern int threadsafe;
 const pthread_t pthread_mutex::_new_mutex = (pthread_t) 1;
 const pthread_t pthread_mutex::_unlocked_mutex = (pthread_t) 2;
 const pthread_t pthread_mutex::_destroyed_mutex = (pthread_t) 3;
+
+
+template <typename T>
+static inline
+void
+delete_and_clear (T * * const ptr)
+{
+  delete *ptr;
+  *ptr = 0;
+}
+
 
 inline bool
 pthread_mutex::no_owner()
@@ -122,28 +126,29 @@ __cygwin_lock_unlock (_LOCK_T *lock)
   paranoid_printf ("threadcount %d.  unlocked", MT_INTERFACE->threadcount);
 }
 
-#if __GNUC__ == 4 && __GNUC_MINOR__ >= 7
-/* FIXME: Temporarily workaround gcc 4.7+ bug. */
-static verifyable_object_state
-#else
 static inline verifyable_object_state
-#endif
 verifyable_object_isvalid (void const *objectptr, thread_magic_t magic, void *static_ptr1,
 			   void *static_ptr2, void *static_ptr3)
 {
-  myfault efault;
-  if (efault.faulted (objectptr))
-    return INVALID_OBJECT;
+  verifyable_object_state state = INVALID_OBJECT;
 
-  verifyable_object **object = (verifyable_object **) objectptr;
+  __try
+    {
+      if (!objectptr || !(*(const char **) objectptr))
+	__leave;
 
-  if ((static_ptr1 && *object == static_ptr1) ||
-      (static_ptr2 && *object == static_ptr2) ||
-      (static_ptr3 && *object == static_ptr3))
-    return VALID_STATIC_OBJECT;
-  if ((*object)->magic != magic)
-    return INVALID_OBJECT;
-  return VALID_OBJECT;
+      verifyable_object **object = (verifyable_object **) objectptr;
+
+      if ((static_ptr1 && *object == static_ptr1) ||
+	  (static_ptr2 && *object == static_ptr2) ||
+	  (static_ptr3 && *object == static_ptr3))
+	state = VALID_STATIC_OBJECT;
+      else if ((*object)->magic == magic)
+	state = VALID_OBJECT;
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return state;
 }
 
 /* static members */
@@ -271,6 +276,23 @@ pthread_cond::is_initializer_or_object (pthread_cond_t const *cond)
   return true;
 }
 
+inline bool
+pthread_barrierattr::is_good_object (pthread_barrierattr_t const *cond)
+{
+  if (verifyable_object_isvalid (cond, PTHREAD_BARRIERATTR_MAGIC)
+      != VALID_OBJECT)
+    return false;
+  return true;
+}
+
+inline bool
+pthread_barrier::is_good_object (pthread_barrier_t const *cond)
+{
+  if (verifyable_object_isvalid (cond, PTHREAD_BARRIER_MAGIC) != VALID_OBJECT)
+    return false;
+  return true;
+}
+
 /* RW locks */
 inline bool
 pthread_rwlock::is_good_object (pthread_rwlock_t const *rwlock)
@@ -358,6 +380,10 @@ pthread::init_mainthread ()
   if (!thread->create_cancel_event ())
     api_fatal ("couldn't create cancel event for main thread");
   VerifyHandle (thread->win32_obj_id);
+  /* Make sure the pthread mutex is recursive.  See comment in
+     pthread::precreate (called only for subsequent pthreads)
+     for a description. */
+  thread->mutex.set_type (PTHREAD_MUTEX_RECURSIVE);
   thread->postcreate ();
 }
 
@@ -473,9 +499,13 @@ pthread::create (void *(*func) (void *), pthread_attr *newattr,
   arg = threadarg;
 
   mutex.lock ();
-  win32_obj_id = CygwinCreateThread (thread_init_wrapper, this,
-				     attr.stackaddr, attr.stacksize,
-				     attr.guardsize, 0, &thread_id);
+  /* stackaddr holds the uppermost stack address.  See the comments in
+     pthread_attr_setstack and pthread_attr_setstackaddr for a description. */
+  ULONG stacksize = attr.stacksize ?: get_rlimit_stack ();
+  PVOID stackaddr = attr.stackaddr ? ((caddr_t) attr.stackaddr - stacksize)
+				   : NULL;
+  win32_obj_id = CygwinCreateThread (thread_init_wrapper, this, stackaddr,
+				     stacksize, attr.guardsize, 0, &thread_id);
 
   if (!win32_obj_id)
     {
@@ -499,19 +529,22 @@ pthread::postcreate ()
   valid = true;
 
   InterlockedIncrement (&MT_INTERFACE->threadcount);
-  /* FIXME: set the priority appropriately for system contention scope */
-  if (attr.inheritsched == PTHREAD_EXPLICIT_SCHED)
-    {
-      /* FIXME: set the scheduling settings for the new thread */
-      /* sched_thread_setparam (win32_obj_id, attr.schedparam); */
-    }
+
+  /* Per POSIX the new thread inherits the sched priority from its caller
+     thread if PTHREAD_INHERIT_SCHED is set.
+     FIXME: set the priority appropriately for system contention scope */
+  if (attr.inheritsched == PTHREAD_INHERIT_SCHED)
+    attr.schedparam.sched_priority
+	= sched_get_thread_priority (GetCurrentThread ());
+  if (attr.schedparam.sched_priority)
+    sched_set_thread_priority (win32_obj_id, attr.schedparam.sched_priority);
 }
 
 void
 pthread::exit (void *value_ptr)
 {
   class pthread *thread = this;
-  bool is_main_tls = (cygtls == _main_tls); // Check cygtls before deleting this
+  _cygtls *tls = cygtls;	/* Save cygtls before deleting this. */
 
   // run cleanup handlers
   pop_all_cleanup_handlers ();
@@ -531,19 +564,22 @@ pthread::exit (void *value_ptr)
 
   if (_my_tls.local_clib.__sdidinit < 0)
     _my_tls.local_clib.__sdidinit = 0;
-  (_reclaim_reent) (_REENT);
+  _reclaim_reent (_REENT);
 
   if (InterlockedDecrement (&MT_INTERFACE->threadcount) == 0)
     ::exit (0);
   else
     {
-      if (is_main_tls)
+      if (tls == _main_tls)
 	{
+	  cygheap->find_tls (tls); /* Lock _main_tls mutex. */
 	  _cygtls *dummy = (_cygtls *) malloc (sizeof (_cygtls));
 	  *dummy = *_main_tls;
 	  _main_tls = dummy;
-	  _main_tls->initialized = false;
+	  _main_tls->initialized = 0;
 	}
+      /* This also unlocks and closes the _main_tls mutex. */
+      tls->remove (INFINITE);
       ExitThread (0);
     }
 }
@@ -589,6 +625,7 @@ pthread::cancel ()
 	 and tends to hang infinitely if we change the instruction pointer.
 	 So just don't cancel asynchronously if the thread is currently
 	 executing Windows code.  Rely on deferred cancellation in this case. */
+      threadlist_t *tl_entry = cygheap->find_tls (cygtls);
       if (!cygtls->inside_kernel (&context))
 	{
 #ifdef __x86_64__
@@ -598,6 +635,7 @@ pthread::cancel ()
 #endif
 	  SetThreadContext (win32_obj_id, &context);
 	}
+      cygheap->unlock_tls (tl_entry);
     }
   mutex.unlock ();
   /* See above.  For instance, a thread which waits for a semaphore in sem_wait
@@ -670,7 +708,7 @@ pthread::cancel ()
     * sendto ()
     * sigpause ()
     * sigsuspend ()
-    o sigtimedwait ()
+    * sigtimedwait ()
     * sigwait ()
     * sigwaitinfo ()
     * sleep ()
@@ -957,43 +995,27 @@ pthread::static_cancel_self ()
 int
 pthread::setcancelstate (int state, int *oldstate)
 {
-  int result = 0;
-
-  mutex.lock ();
-
   if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
-    result = EINVAL;
-  else
-    {
-      if (oldstate)
-	*oldstate = cancelstate;
-      cancelstate = state;
-    }
+    return EINVAL;
 
-  mutex.unlock ();
+  if (oldstate)
+    *oldstate = cancelstate;
+  cancelstate = state;
 
-  return result;
+  return 0;
 }
 
 int
 pthread::setcanceltype (int type, int *oldtype)
 {
-  int result = 0;
-
-  mutex.lock ();
-
   if (type != PTHREAD_CANCEL_DEFERRED && type != PTHREAD_CANCEL_ASYNCHRONOUS)
-    result = EINVAL;
-  else
-    {
-      if (oldtype)
-	*oldtype = canceltype;
-      canceltype = type;
-    }
+    return EINVAL;
 
-  mutex.unlock ();
+  if (oldtype)
+    *oldtype = canceltype;
+  canceltype = type;
 
-  return result;
+  return 0;
 }
 
 void
@@ -1083,8 +1105,8 @@ pthread::resume ()
 
 pthread_attr::pthread_attr ():verifyable_object (PTHREAD_ATTR_MAGIC),
 joinable (PTHREAD_CREATE_JOINABLE), contentionscope (PTHREAD_SCOPE_PROCESS),
-inheritsched (PTHREAD_INHERIT_SCHED), stackaddr (NULL),
-stacksize (PTHREAD_DEFAULT_STACKSIZE), guardsize (PTHREAD_DEFAULT_GUARDSIZE)
+inheritsched (PTHREAD_INHERIT_SCHED), stackaddr (NULL), stacksize (0),
+guardsize (wincap.def_guard_page_size ()), name (NULL)
 {
   schedparam.sched_priority = 0;
 }
@@ -1244,24 +1266,14 @@ pthread_cond::wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout)
   ++mutex->condwaits;
   mutex->unlock ();
 
-  rv = cygwait (sem_wait, timeout, cw_cancel | cw_sig_eintr);
+  rv = cygwait (sem_wait, timeout, cw_cancel | cw_sig_restart);
 
   mtx_out.lock ();
 
-  if (rv != WAIT_OBJECT_0)
-    {
-      /*
-       * It might happen that a signal is sent while the thread got canceled
-       * or timed out. Try to take one.
-       * If the thread gets one than a signal|broadcast is in progress.
-       */
-      if (WaitForSingleObject (sem_wait, 0) == WAIT_OBJECT_0)
-	/*
-	 * thread got cancelled ot timed out while a signalling is in progress.
-	 * Set wait result back to signaled
-	 */
-	rv = WAIT_OBJECT_0;
-    }
+  if (rv != WAIT_OBJECT_0 && WaitForSingleObject (sem_wait, 0) == WAIT_OBJECT_0)
+    /* Thread got cancelled ot timed out while a signalling is in progress.
+       Set wait result back to signaled */
+    rv = WAIT_OBJECT_0;
 
   InterlockedDecrement (&waiting);
 
@@ -1279,13 +1291,6 @@ pthread_cond::wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout)
 
   if (rv == WAIT_CANCELED)
     pthread::static_cancel_self ();
-  else if (rv == WAIT_SIGNALED)
-    /* SUSv3 states:  If a signal is delivered to a thread waiting for a
-       condition variable, upon return from the signal handler the thread
-       resumes waiting for the condition variable as if it was not
-       interrupted, or it shall return zero due to spurious wakeup.
-       We opt for the latter choice here. */
-    return 0;
   else if (rv == WAIT_TIMEOUT)
     return ETIMEDOUT;
 
@@ -1305,6 +1310,25 @@ pthread_cond::_fixup_after_fork ()
   sem_wait = ::CreateSemaphore (&sec_none_nih, 0, INT32_MAX, NULL);
   if (!sem_wait)
     api_fatal ("pthread_cond::_fixup_after_fork () failed to recreate win32 semaphore");
+}
+
+pthread_barrierattr::pthread_barrierattr ()
+  : verifyable_object (PTHREAD_BARRIERATTR_MAGIC)
+  , shared (PTHREAD_PROCESS_PRIVATE)
+{
+}
+
+pthread_barrierattr::~pthread_barrierattr ()
+{
+}
+
+pthread_barrier::pthread_barrier ()
+  : verifyable_object (PTHREAD_BARRIER_MAGIC)
+{
+}
+
+pthread_barrier::~pthread_barrier ()
+{
 }
 
 pthread_rwlockattr::pthread_rwlockattr ():verifyable_object
@@ -1389,7 +1413,7 @@ pthread_rwlock::~pthread_rwlock ()
 }
 
 int
-pthread_rwlock::rdlock ()
+pthread_rwlock::rdlock (PLARGE_INTEGER timeout)
 {
   int result = 0;
   struct RWLOCK_READER *reader;
@@ -1402,19 +1426,27 @@ pthread_rwlock::rdlock ()
       if (reader->n < UINT32_MAX)
 	++reader->n;
       else
-	errno = EAGAIN;
+	result = EAGAIN;
       goto DONE;
     }
 
   while (writer || waiting_writers)
     {
+      int ret;
+
       pthread_cleanup_push (pthread_rwlock::rdlock_cleanup, this);
 
       ++waiting_readers;
-      cond_readers.wait (&mtx);
+      ret = cond_readers.wait (&mtx, timeout);
       --waiting_readers;
 
       pthread_cleanup_pop (0);
+
+      if (ret == ETIMEDOUT)
+	{
+	  result = ETIMEDOUT;
+	  goto DONE;
+	}
     }
 
   if ((reader = add_reader ()))
@@ -1457,7 +1489,7 @@ pthread_rwlock::tryrdlock ()
 }
 
 int
-pthread_rwlock::wrlock ()
+pthread_rwlock::wrlock (PLARGE_INTEGER timeout)
 {
   int result = 0;
   pthread_t self = pthread::self ();
@@ -1472,13 +1504,21 @@ pthread_rwlock::wrlock ()
 
   while (writer || readers)
     {
+      int ret;
+
       pthread_cleanup_push (pthread_rwlock::wrlock_cleanup, this);
 
       ++waiting_writers;
-      cond_writers.wait (&mtx);
+      ret = cond_writers.wait (&mtx, timeout);
       --waiting_writers;
 
       pthread_cleanup_pop (0);
+
+      if (ret == ETIMEDOUT)
+	{
+	  result = ETIMEDOUT;
+	  goto DONE;
+	}
     }
 
   writer = self;
@@ -1709,7 +1749,7 @@ pthread_mutex::pthread_mutex (pthread_mutexattr *attr) :
   tid (0),
 #endif
   recursion_counter (0), condwaits (0),
-  type (PTHREAD_MUTEX_ERRORCHECK),
+  type (PTHREAD_MUTEX_NORMAL),
   pshared (PTHREAD_PROCESS_PRIVATE)
 {
   win32_obj_id = ::CreateEvent (&sec_none_nih, false, false, NULL);
@@ -1741,7 +1781,7 @@ pthread_mutex::~pthread_mutex ()
 }
 
 int
-pthread_mutex::lock ()
+pthread_mutex::lock (PLARGE_INTEGER timeout)
 {
   pthread_t self = ::pthread_self ();
   int result = 0;
@@ -1751,9 +1791,14 @@ pthread_mutex::lock ()
   else if (type == PTHREAD_MUTEX_NORMAL /* potentially causes deadlock */
 	   || !pthread::equal (owner, self))
     {
-      /* FIXME: no cancel? */
-      cygwait (win32_obj_id, cw_infinite, cw_sig);
-      set_owner (self);
+      if (cygwait (win32_obj_id, timeout, cw_sig | cw_sig_restart)
+	  != WAIT_TIMEOUT)
+	set_owner (self);
+      else
+	{
+	  InterlockedDecrement (&lock_counter);
+	  result = ETIMEDOUT;
+	}
     }
   else
     {
@@ -1777,7 +1822,7 @@ pthread_mutex::unlock ()
   if (type == PTHREAD_MUTEX_NORMAL)
     /* no error checking */;
   else if (no_owner ())
-    res = type == PTHREAD_MUTEX_ERRORCHECK ? EINVAL : 0;
+    res = type == PTHREAD_MUTEX_ERRORCHECK ? EPERM : 0;
   else if (!pthread::equal (owner, self))
     res = EPERM;
   if (!res && recursion_counter > 0 && --recursion_counter == 0)
@@ -1851,7 +1896,7 @@ pthread_mutex::_fixup_after_fork ()
 }
 
 pthread_mutexattr::pthread_mutexattr ():verifyable_object (PTHREAD_MUTEXATTR_MAGIC),
-pshared (PTHREAD_PROCESS_PRIVATE), mutextype (PTHREAD_MUTEX_ERRORCHECK)
+pshared (PTHREAD_PROCESS_PRIVATE), mutextype (PTHREAD_MUTEX_NORMAL)
 {
 }
 
@@ -1877,6 +1922,19 @@ pthread_spinlock::lock ()
 {
   pthread_t self = ::pthread_self ();
   int result = -1;
+  unsigned spins = 0;
+
+  /*
+    We want to spin using 'pause' instruction on multi-core system but we
+    want to avoid this on single-core systems.
+
+    The limit of 1000 spins is semi-arbitrary. Microsoft suggests (in their
+    InitializeCriticalSectionAndSpinCount documentation on MSDN) they are
+    using spin count limit 4000 for their heap manager critical
+    sections. Other source suggest spin count as small as 200 for fast path
+    of mutex locking.
+   */
+  unsigned const FAST_SPINS_LIMIT = wincap.cpu_count () != 1 ? 1000 : 0;
 
   do
     {
@@ -1885,8 +1943,13 @@ pthread_spinlock::lock ()
 	  set_owner (self);
 	  result = 0;
 	}
-      else if (pthread::equal (owner, self))
+      else if (unlikely(pthread::equal (owner, self)))
 	result = EDEADLK;
+      else if (spins < FAST_SPINS_LIMIT)
+        {
+          ++spins;
+          __asm__ volatile ("pause":::);
+        }
       else
 	{
 	  /* Minimal timeout to minimize CPU usage while still spinning. */
@@ -1933,6 +1996,9 @@ pthread::thread_init_wrapper (void *arg)
      settings. */
   _my_tls.sigmask = thread->parent_sigmask;
   thread->set_tls_self_pointer ();
+
+  // Give thread default name
+  SetThreadName (GetCurrentThreadId (), program_invocation_short_name);
 
   thread->mutex.lock ();
 
@@ -2118,9 +2184,6 @@ pthread::atfork (void (*prepare)(void), void (*parent)(void), void (*child)(void
 extern "C" int
 pthread_attr_init (pthread_attr_t *attr)
 {
-  if (pthread_attr::is_good_object (attr))
-    return EBUSY;
-
   *attr = new pthread_attr;
   if (!pthread_attr::is_good_object (attr))
     {
@@ -2253,7 +2316,13 @@ pthread_attr_setstack (pthread_attr_t *attr, void *addr, size_t size)
     return EINVAL;
   if (size < PTHREAD_STACK_MIN)
     return EINVAL;
-  (*attr)->stackaddr = addr;
+  /* The incoming address addr points to the lowest addressable byte of a
+     buffer of size bytes.  Due to the way pthread_attr_setstackaddr is defined
+     on Linux, the lowest address ot the stack can't be reliably computed when
+     using pthread_attr_setstackaddr/pthread_attr_setstacksize.  Therefore we
+     store the uppermost address of the stack in stackaddr.  See also the
+     comment in pthread_attr_setstackaddr. */
+  (*attr)->stackaddr = (caddr_t) addr + size;
   (*attr)->stacksize = size;
   return 0;
 }
@@ -2263,8 +2332,9 @@ pthread_attr_getstack (const pthread_attr_t *attr, void **addr, size_t *size)
 {
   if (!pthread_attr::is_good_object (attr))
     return EINVAL;
-  /* uses lowest address of stack on all platforms */
-  *addr = (void *)((ptrdiff_t)(*attr)->stackaddr - (*attr)->stacksize);
+  /* stackaddr holds the uppermost stack address.  See the comment in
+     pthread_attr_setstack. */
+  *addr = (caddr_t) (*attr)->stackaddr - (*attr)->stacksize;
   *size = (*attr)->stacksize;
   return 0;
 }
@@ -2276,6 +2346,12 @@ pthread_attr_setstackaddr (pthread_attr_t *attr, void *addr)
     return EINVAL;
   if (addr == NULL)
     return EINVAL;
+  /* This function is deprecated in SUSv4, but SUSv3 didn't define
+     if the incoming stack address is the lowest address of the memory
+     area defined as stack, or if it's the start address of the stack
+     at which it begins its growth.  On Linux it's the latter which
+     means the uppermost stack address on x86 based systems.  See comment
+     in pthread_attr_setstack as well. */
   (*attr)->stackaddr = addr;
   return 0;
 }
@@ -2285,8 +2361,7 @@ pthread_attr_getstackaddr (const pthread_attr_t *attr, void **addr)
 {
   if (!pthread_attr::is_good_object (attr))
     return EINVAL;
-  /* uses stack address, which is the higher address on platforms
-     where the stack grows downwards, such as x86 */
+  /* See comment in pthread_attr_setstackaddr. */
   *addr = (*attr)->stackaddr;
   return 0;
 }
@@ -2307,7 +2382,10 @@ pthread_attr_getstacksize (const pthread_attr_t *attr, size_t *size)
 {
   if (!pthread_attr::is_good_object (attr))
     return EINVAL;
-  *size = (*attr)->stacksize;
+  /* If the stacksize has not been set by the application, return the
+     default stacksize.  Note that this is different from what
+     pthread_attr_getstack returns. */
+  *size = (*attr)->stacksize ?: get_rlimit_stack ();
   return 0;
 }
 
@@ -2375,7 +2453,8 @@ pthread::join (pthread_t *thread, void **return_val)
       (*thread)->attr.joinable = PTHREAD_CREATE_DETACHED;
       (*thread)->mutex.unlock ();
 
-      switch (cygwait ((*thread)->win32_obj_id, cw_infinite, cw_sig | cw_cancel))
+      switch (cygwait ((*thread)->win32_obj_id, cw_infinite,
+		       cw_sig | cw_sig_restart | cw_cancel))
 	{
 	case WAIT_OBJECT_0:
 	  if (return_val)
@@ -2458,11 +2537,47 @@ pthread::resume (pthread_t *thread)
   return 0;
 }
 
+static inline int
+pthread_convert_abstime (clockid_t clock_id, const struct timespec *abstime,
+			 PLARGE_INTEGER timeout)
+{
+  struct timespec tp;
+
+  /* According to SUSv3, the abstime value must be checked for validity. */
+  if (abstime->tv_sec < 0
+      || abstime->tv_nsec < 0
+      || abstime->tv_nsec >= NSPERSEC)
+    return EINVAL;
+
+  /* Check for immediate timeout before converting */
+  clock_gettime (clock_id, &tp);
+  if (tp.tv_sec > abstime->tv_sec
+      || (tp.tv_sec == abstime->tv_sec
+	  && tp.tv_nsec > abstime->tv_nsec))
+    return ETIMEDOUT;
+
+  timeout->QuadPart = abstime->tv_sec * NS100PERSEC
+		     + (abstime->tv_nsec + (NSPERSEC/NS100PERSEC) - 1)
+		       / (NSPERSEC/NS100PERSEC);
+  switch (clock_id)
+    {
+    case CLOCK_REALTIME:
+      timeout->QuadPart += FACTOR;
+      break;
+    default:
+      /* other clocks must be handled as relative timeout */
+      timeout->QuadPart -= tp.tv_sec * NS100PERSEC + tp.tv_nsec
+			   / (NSPERSEC/NS100PERSEC);
+      timeout->QuadPart *= -1LL;
+      break;
+    }
+  return 0;
+}
+
 extern "C" int
 pthread_getattr_np (pthread_t thread, pthread_attr_t *attr)
 {
-  const size_t sizeof_tbi = sizeof (THREAD_BASIC_INFORMATION);
-  PTHREAD_BASIC_INFORMATION tbi;
+  THREAD_BASIC_INFORMATION tbi;
   NTSTATUS status;
 
   if (!pthread::is_good_object (&thread))
@@ -2482,17 +2597,18 @@ pthread_getattr_np (pthread_t thread, pthread_attr_t *attr)
   (*attr)->schedparam = thread->attr.schedparam;
   (*attr)->guardsize = thread->attr.guardsize;
 
-  tbi = (PTHREAD_BASIC_INFORMATION) malloc (sizeof_tbi);
   status = NtQueryInformationThread (thread->win32_obj_id,
 				     ThreadBasicInformation,
-				     tbi, sizeof_tbi, NULL);
+				     &tbi, sizeof (tbi), NULL);
   if (NT_SUCCESS (status))
     {
-      PNT_TIB tib = tbi->TebBaseAddress;
-      (*attr)->stackaddr = tib->StackBase;
-      /* stack grows downwards on x86 systems */
-      (*attr)->stacksize = (uintptr_t) tib->StackBase
-			   - (uintptr_t) tib->StackLimit;
+      PTEB teb = (PTEB) tbi.TebBaseAddress;
+      /* stackaddr holds the uppermost stack address.  See the comments
+	 in pthread_attr_setstack and pthread_attr_setstackaddr for a
+	 description. */
+      (*attr)->stackaddr = teb->Tib.StackBase;
+      (*attr)->stacksize = (uintptr_t) teb->Tib.StackBase
+	       - (uintptr_t) (teb->DeallocationStack ?: teb->Tib.StackLimit);
     }
   else
     {
@@ -2504,6 +2620,85 @@ pthread_getattr_np (pthread_t thread, pthread_attr_t *attr)
 
   return 0;
 }
+
+/* For Linux compatibility, the length of a thread name is 16 characters. */
+#define THRNAMELEN 16
+
+extern "C" int
+pthread_getname_np (pthread_t thread, char *buf, size_t buflen)
+{
+  char *name;
+
+  if (!pthread::is_good_object (&thread))
+    return ESRCH;
+
+  if (!thread->attr.name)
+    name = program_invocation_short_name;
+  else
+    name = thread->attr.name;
+
+  /* Return ERANGE if the provided buffer is less than THRNAMELEN.  Truncate
+     and zero-terminate the name to fit in buf.  This means we always return
+     something if the buffer is THRNAMELEN or larger, but there is no way to
+     tell if we have the whole name. */
+  if (buflen < THRNAMELEN)
+    return ERANGE;
+
+  int ret = 0;
+  __try
+    {
+      strlcpy (buf, name, buflen);
+    }
+  __except (NO_ERROR)
+    {
+      ret = EFAULT;
+    }
+  __endtry
+
+  return ret;
+}
+
+extern "C" int
+pthread_setname_np (pthread_t thread, const char *name)
+{
+  char *oldname, *cp;
+
+  if (!pthread::is_good_object (&thread))
+    return ESRCH;
+
+  if (strlen (name) > THRNAMELEN)
+    return ERANGE;
+
+  cp = strdup (name);
+  if (!cp)
+    return ENOMEM;
+
+  oldname = thread->attr.name;
+  thread->attr.name = cp;
+
+  SetThreadName (GetThreadId (thread->win32_obj_id), thread->attr.name);
+
+  if (oldname)
+    free (oldname);
+
+  return 0;
+}
+
+/* Returns running thread's name; works for both cygthreads and pthreads */
+char *
+mythreadname (void)
+{
+  char *result = (char *) cygthread::name ();
+
+  if (result == _my_tls.locals.unknown_thread_name)
+    {
+      result[0] = '\0';
+      pthread_getname_np (pthread_self (), result, (size_t) THRNAMELEN);
+    }
+
+  return result;
+}
+#undef THRNAMELEN
 
 /* provided for source level compatability.
    See http://www.opengroup.org/onlinepubs/007908799/xsh/pthread_getconcurrency.html
@@ -2531,9 +2726,7 @@ pthread_getschedparam (pthread_t thread, int *policy,
   if (!pthread::is_good_object (&thread))
     return ESRCH;
   *policy = SCHED_FIFO;
-  /* we don't return the current effective priority, we return the current
-     requested priority */
-  *param = thread->attr.schedparam;
+  param->sched_priority = sched_get_thread_priority (thread->win32_obj_id);
   return 0;
 }
 
@@ -2659,18 +2852,20 @@ pthread_cond::init (pthread_cond_t *cond, const pthread_condattr_t *attr)
       return EAGAIN;
     }
 
-  myfault efault;
-  if (efault.faulted ())
+  int ret = 0;
+
+  __try
+    {
+      *cond = new_cond;
+    }
+  __except (NO_ERROR)
     {
       delete new_cond;
-      cond_initialization_lock.unlock ();
-      return EINVAL;
+      ret = EINVAL;
     }
-
-  *cond = new_cond;
+  __endtry
   cond_initialization_lock.unlock ();
-
-  return 0;
+  return ret;
 }
 
 extern "C" int
@@ -2719,48 +2914,25 @@ extern "C" int
 pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
 			const struct timespec *abstime)
 {
-  struct timespec tp;
   LARGE_INTEGER timeout;
-
-  myfault efault;
-  if (efault.faulted ())
-    return EINVAL;
 
   pthread_testcancel ();
 
-  int err = __pthread_cond_wait_init (cond, mutex);
-  if (err)
-    return err;
-
-  /* According to SUSv3, the abstime value must be checked for validity. */
-  if (abstime->tv_sec < 0
-      || abstime->tv_nsec < 0
-      || abstime->tv_nsec > 999999999)
-    return EINVAL;
-
-  clock_gettime ((*cond)->clock_id, &tp);
-
-  /* Check for immediate timeout before converting */
-  if (tp.tv_sec > abstime->tv_sec
-      || (tp.tv_sec == abstime->tv_sec
-	  && tp.tv_nsec > abstime->tv_nsec))
-    return ETIMEDOUT;
-
-  timeout.QuadPart = abstime->tv_sec * NSPERSEC
-		      + (abstime->tv_nsec + 99LL) / 100LL;
-
-  switch ((*cond)->clock_id)
+  __try
     {
-    case CLOCK_REALTIME:
-      timeout.QuadPart += FACTOR;
-      break;
-    default:
-      /* other clocks must be handled as relative timeout */
-      timeout.QuadPart -= tp.tv_sec * NSPERSEC + tp.tv_nsec / 100LL;
-      timeout.QuadPart *= -1LL;
-      break;
+      int err = __pthread_cond_wait_init (cond, mutex);
+      if (err)
+	return err;
+
+      err = pthread_convert_abstime ((*cond)->clock_id, abstime, &timeout);
+      if (err)
+	return err;
+
+      return (*cond)->wait (*mutex, &timeout);
     }
-  return (*cond)->wait (*mutex, &timeout);
+  __except (NO_ERROR) {}
+  __endtry
+  return EINVAL;
 }
 
 extern "C" int
@@ -2777,9 +2949,6 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
 extern "C" int
 pthread_condattr_init (pthread_condattr_t *condattr)
 {
-  if (pthread_condattr::is_good_object (condattr))
-    return EBUSY;
-
   *condattr = new pthread_condattr;
   if (!pthread_condattr::is_good_object (condattr))
     {
@@ -2885,18 +3054,20 @@ pthread_rwlock::init (pthread_rwlock_t *rwlock, const pthread_rwlockattr_t *attr
       return EAGAIN;
     }
 
-  myfault efault;
-  if (efault.faulted ())
+  int ret = 0;
+
+  __try
+    {
+      *rwlock = new_rwlock;
+    }
+  __except (NO_ERROR)
     {
       delete new_rwlock;
-      rwlock_initialization_lock.unlock ();
-      return EINVAL;
+      ret = EINVAL;
     }
-
-  *rwlock = new_rwlock;
+  __endtry
   rwlock_initialization_lock.unlock ();
-
-  return 0;
+  return ret;
 }
 
 extern "C" int
@@ -2910,6 +3081,37 @@ pthread_rwlock_rdlock (pthread_rwlock_t *rwlock)
     return EINVAL;
 
   return (*rwlock)->rdlock ();
+}
+
+extern "C" int
+pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock,
+			    const struct timespec *abstime)
+{
+  LARGE_INTEGER timeout;
+
+  pthread_testcancel ();
+
+  if (pthread_rwlock::is_initializer (rwlock))
+    pthread_rwlock::init (rwlock, NULL);
+  if (!pthread_rwlock::is_good_object (rwlock))
+    return EINVAL;
+
+  /* According to SUSv3, abstime need not be checked for validity,
+     if the rwlock can be locked immediately. */
+  if (!(*rwlock)->tryrdlock ())
+    return 0;
+
+  __try
+    {
+      int err = pthread_convert_abstime (CLOCK_REALTIME, abstime, &timeout);
+      if (err)
+	return err;
+
+      return (*rwlock)->rdlock (&timeout);
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return EINVAL;
 }
 
 extern "C" int
@@ -2937,6 +3139,37 @@ pthread_rwlock_wrlock (pthread_rwlock_t *rwlock)
 }
 
 extern "C" int
+pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock,
+			    const struct timespec *abstime)
+{
+  LARGE_INTEGER timeout;
+
+  pthread_testcancel ();
+
+  if (pthread_rwlock::is_initializer (rwlock))
+    pthread_rwlock::init (rwlock, NULL);
+  if (!pthread_rwlock::is_good_object (rwlock))
+    return EINVAL;
+
+  /* According to SUSv3, abstime need not be checked for validity,
+     if the rwlock can be locked immediately. */
+  if (!(*rwlock)->trywrlock ())
+    return 0;
+
+  __try
+    {
+      int err = pthread_convert_abstime (CLOCK_REALTIME, abstime, &timeout);
+      if (err)
+	return err;
+
+      return (*rwlock)->wrlock (&timeout);
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return EINVAL;
+}
+
+extern "C" int
 pthread_rwlock_trywrlock (pthread_rwlock_t *rwlock)
 {
   if (pthread_rwlock::is_initializer (rwlock))
@@ -2961,9 +3194,6 @@ pthread_rwlock_unlock (pthread_rwlock_t *rwlock)
 extern "C" int
 pthread_rwlockattr_init (pthread_rwlockattr_t *rwlockattr)
 {
-  if (pthread_rwlockattr::is_good_object (rwlockattr))
-    return EBUSY;
-
   *rwlockattr = new pthread_rwlockattr;
   if (!pthread_rwlockattr::is_good_object (rwlockattr))
     {
@@ -3026,7 +3256,11 @@ pthread_kill (pthread_t thread, int sig)
   if (!thread->valid)
     rval = ESRCH;
   else if (sig)
-    rval = sig_send (NULL, si, thread->cygtls);
+    {
+      rval = sig_send (NULL, si, thread->cygtls);
+      if (rval == -1)
+	rval = get_errno ();
+    }
   else
     switch (WaitForSingleObject (thread->win32_obj_id, 0))
       {
@@ -3108,15 +3342,17 @@ pthread_mutex::init (pthread_mutex_t *mutex,
 	    new_mutex->type = PTHREAD_MUTEX_ERRORCHECK;
 	}
 
-      myfault efault;
-      if (efault.faulted ())
+      __try
+	{
+	  *mutex = new_mutex;
+	}
+      __except (NO_ERROR)
 	{
 	  delete new_mutex;
 	  mutex_initialization_lock.unlock ();
 	  return EINVAL;
 	}
-
-      *mutex = new_mutex;
+      __endtry
     }
   mutex_initialization_lock.unlock ();
   pthread_printf ("*mutex %p, attr %p, initializer %p", *mutex, attr, initializer);
@@ -3149,6 +3385,34 @@ pthread_mutex_lock (pthread_mutex_t *mutex)
 }
 
 extern "C" int
+pthread_mutex_timedlock (pthread_mutex_t *mutex, const struct timespec *abstime)
+{
+  LARGE_INTEGER timeout;
+
+  if (pthread_mutex::is_initializer (mutex))
+    pthread_mutex::init (mutex, NULL, *mutex);
+  if (!pthread_mutex::is_good_object (mutex))
+    return EINVAL;
+
+  /* According to SUSv3, abstime need not be checked for validity,
+     if the mutex can be locked immediately. */
+  if (!(*mutex)->trylock ())
+    return 0;
+
+  __try
+    {
+      int err = pthread_convert_abstime (CLOCK_REALTIME, abstime, &timeout);
+      if (err)
+	return err;
+
+      return (*mutex)->lock (&timeout);
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return EINVAL;
+}
+
+extern "C" int
 pthread_mutex_trylock (pthread_mutex_t *mutex)
 {
   if (pthread_mutex::is_initializer (mutex))
@@ -3162,7 +3426,7 @@ extern "C" int
 pthread_mutex_unlock (pthread_mutex_t *mutex)
 {
   if (pthread_mutex::is_initializer (mutex))
-    return EPERM;
+    pthread_mutex::init (mutex, NULL, *mutex);
   if (!pthread_mutex::is_good_object (mutex))
     return EINVAL;
   return (*mutex)->unlock ();
@@ -3205,16 +3469,17 @@ pthread_spinlock::init (pthread_spinlock_t *spinlock, int pshared)
       return EAGAIN;
     }
 
-  myfault efault;
-  if (efault.faulted ())
+  __try
+    {
+      *spinlock = new_spinlock;
+    }
+  __except (NO_ERROR)
     {
       delete new_spinlock;
       return EINVAL;
     }
-
-  *spinlock = new_spinlock;
+  __endtry
   pthread_printf ("*spinlock %p, pshared %d", *spinlock, pshared);
-
   return 0;
 }
 
@@ -3284,9 +3549,6 @@ pthread_mutexattr_gettype (const pthread_mutexattr_t *attr, int *type)
 extern "C" int
 pthread_mutexattr_init (pthread_mutexattr_t *attr)
 {
-  if (pthread_mutexattr::is_good_object (attr))
-    return EBUSY;
-
   *attr = new pthread_mutexattr ();
   if (!pthread_mutexattr::is_good_object (attr))
     {
@@ -3473,56 +3735,29 @@ semaphore::_trywait ()
 }
 
 int
-semaphore::_timedwait (const struct timespec *abstime)
+semaphore::_wait (PLARGE_INTEGER timeout)
 {
-  LARGE_INTEGER timeout;
-
-  myfault efault;
-  if (efault.faulted ())
+  __try
     {
-      /* According to SUSv3, abstime need not be checked for validity,
-	 if the semaphore can be locked immediately. */
-      if (!_trywait ())
-	return 0;
-      set_errno (EINVAL);
-      return -1;
+      switch (cygwait (win32_obj_id, timeout,
+		       cw_cancel | cw_cancel_self | cw_sig_eintr))
+	{
+	case WAIT_OBJECT_0:
+	  break;
+	case WAIT_SIGNALED:
+	  set_errno (EINTR);
+	  return -1;
+	case WAIT_TIMEOUT:
+	  set_errno (ETIMEDOUT);
+	  return -1;
+	default:
+	  pthread_printf ("cygwait failed. %E");
+	  __seterrno ();
+	  return -1;
+	}
     }
-
-  timeout.QuadPart = abstime->tv_sec * NSPERSEC
-		     + (abstime->tv_nsec + 99) / 100 + FACTOR;
-
-  switch (cygwait (win32_obj_id, &timeout, cw_cancel | cw_cancel_self | cw_sig_eintr))
-    {
-    case WAIT_OBJECT_0:
-      break;
-    case WAIT_SIGNALED:
-      set_errno (EINTR);
-      return -1;
-    case WAIT_TIMEOUT:
-      set_errno (ETIMEDOUT);
-      return -1;
-    default:
-      pthread_printf ("cygwait failed. %E");
-      __seterrno ();
-      return -1;
-    }
-  return 0;
-}
-
-int
-semaphore::_wait ()
-{
-  switch (cygwait (win32_obj_id, cw_infinite, cw_cancel | cw_cancel_self | cw_sig_eintr))
-    {
-    case WAIT_OBJECT_0:
-      break;
-    case WAIT_SIGNALED:
-      set_errno (EINTR);
-      return -1;
-    default:
-      pthread_printf ("cygwait failed. %E");
-      break;
-    }
+  __except (NO_ERROR) {}
+  __endtry
   return 0;
 }
 
@@ -3655,7 +3890,7 @@ semaphore::open (unsigned long long hash, LUID luid, int fd, int oflag,
   for (semaphore *sema = semaphores.head; sema; sema = sema->next)
     if (sema->fd >= 0 && sema->hash == hash
 	&& sema->luid.HighPart == luid.HighPart
-	&& sema->luid.LowPart == sema->luid.LowPart)
+	&& sema->luid.LowPart == luid.LowPart)
       {
 	wasopen = true;
 	semaphores.mx.unlock ();
@@ -3711,13 +3946,30 @@ semaphore::trywait (sem_t *sem)
 int
 semaphore::timedwait (sem_t *sem, const struct timespec *abstime)
 {
+  LARGE_INTEGER timeout;
+
   if (!is_good_object (sem))
     {
       set_errno (EINVAL);
       return -1;
     }
 
-  return (*sem)->_timedwait (abstime);
+  /* According to SUSv3, abstime need not be checked for validity,
+     if the semaphore can be locked immediately. */
+  if (!(*sem)->_trywait ())
+    return 0;
+
+  __try
+    {
+      int err = pthread_convert_abstime (CLOCK_REALTIME, abstime, &timeout);
+      if (err)
+	return err;
+
+      return (*sem)->_wait (&timeout);
+    }
+  __except (NO_ERROR) {}
+  __endtry
+  return EINVAL;
 }
 
 int
@@ -3736,36 +3988,38 @@ semaphore::post (sem_t *sem)
 int
 semaphore::getvalue (sem_t *sem, int *sval)
 {
-  myfault efault;
-  if (efault.faulted () || !is_good_object (sem))
+  __try
     {
-      set_errno (EINVAL);
-      return -1;
+      if (is_good_object (sem))
+	return (*sem)->_getvalue (sval);
     }
-
-  return (*sem)->_getvalue (sval);
+  __except (NO_ERROR) {}
+  __endtry
+  set_errno (EINVAL);
+  return -1;
 }
 
 int
 semaphore::getinternal (sem_t *sem, int *sfd, unsigned long long *shash,
 			LUID *sluid, unsigned int *sval)
 {
-  myfault efault;
-  if (efault.faulted () || !is_good_object (sem))
+  __try
     {
-      set_errno (EINVAL);
-      return -1;
+      if (!is_good_object (sem))
+	__leave;
+      if ((*sfd = (*sem)->fd) < 0)
+	__leave;
+      *shash = (*sem)->hash;
+      *sluid = (*sem)->luid;
+      /* POSIX defines the value in calls to sem_init/sem_open as unsigned,
+	 but the sem_getvalue gets a pointer to int to return the value.
+	 Go figure! */
+      return (*sem)->_getvalue ((int *)sval);
     }
-  if ((*sfd = (*sem)->fd) < 0)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  *shash = (*sem)->hash;
-  *sluid = (*sem)->luid;
-  /* POSIX defines the value in calls to sem_init/sem_open as unsigned, but
-     the sem_getvalue gets a pointer to int to return the value.  Go figure! */
-  return (*sem)->_getvalue ((int *)sval);
+  __except (NO_ERROR) {}
+  __endtry
+  set_errno (EINVAL);
+  return -1;
 }
 
 /* pthread_null */
@@ -3841,3 +4095,218 @@ pthread_null::getsequence_np ()
 }
 
 pthread_null pthread_null::_instance;
+
+
+extern "C"
+int
+pthread_barrierattr_init (pthread_barrierattr_t * battr)
+{
+  if (unlikely (battr == NULL))
+    return EINVAL;
+
+  *battr = new pthread_barrierattr;
+  (*battr)->shared = PTHREAD_PROCESS_PRIVATE;
+
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrierattr_setpshared (pthread_barrierattr_t * battr, int shared)
+{
+  if (unlikely (! pthread_barrierattr::is_good_object (battr)))
+    return EINVAL;
+
+  if (unlikely (shared != PTHREAD_PROCESS_SHARED
+                && shared != PTHREAD_PROCESS_PRIVATE))
+    return EINVAL;
+
+  (*battr)->shared = shared;
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrierattr_getpshared (const pthread_barrierattr_t * battr,
+                                int * shared)
+{
+  if (unlikely (! pthread_barrierattr::is_good_object (battr)
+                || shared == NULL))
+    return EINVAL;
+
+  *shared = (*battr)->shared;
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrierattr_destroy (pthread_barrierattr_t * battr)
+{
+  if (unlikely (! pthread_barrierattr::is_good_object (battr)))
+    return EINVAL;
+
+  delete_and_clear (battr);
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrier_init (pthread_barrier_t * bar,
+                      const pthread_barrierattr_t * attr, unsigned count)
+{
+  if (unlikely (bar == NULL))
+    return EINVAL;
+
+  *bar = new pthread_barrier;
+  return (*bar)->init (attr, count);
+}
+
+
+int
+pthread_barrier::init (const pthread_barrierattr_t * attr, unsigned count)
+{
+  pthread_mutex_t * mutex = NULL;
+
+  if (unlikely ((attr != NULL
+                 && (! pthread_barrierattr::is_good_object (attr)
+                     || (*attr)->shared == PTHREAD_PROCESS_SHARED))
+                || count == 0))
+    return EINVAL;
+
+  int retval = pthread_mutex_init (&mtx, NULL);
+  if (unlikely (retval != 0))
+    return retval;
+
+  retval = pthread_cond_init (&cond, NULL);
+  if (unlikely (retval != 0))
+    {
+      int ret = pthread_mutex_destroy (mutex);
+      if (ret != 0)
+        api_fatal ("pthread_mutex_destroy (%p) = %d", mutex, ret);
+
+      mtx = NULL;
+      return retval;
+    }
+
+  cnt = count;
+  cyc = 0;
+  wt = 0;
+
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrier_destroy (pthread_barrier_t * bar)
+{
+  if (unlikely (! pthread_barrier::is_good_object (bar)))
+    return EINVAL;
+
+  int ret;
+  ret = (*bar)->destroy ();
+  if (ret == 0)
+    delete_and_clear (bar);
+
+  return ret;
+}
+
+
+int
+pthread_barrier::destroy ()
+{
+  if (unlikely (wt != 0))
+    return EBUSY;
+
+  int retval = pthread_cond_destroy (&cond);
+  if (unlikely (retval != 0))
+    return retval;
+  else
+    cond = NULL;
+
+  retval = pthread_mutex_destroy (&mtx);
+  if (unlikely (retval != 0))
+    return retval;
+  else
+    mtx = NULL;
+
+  cnt = 0;
+  cyc = 0;
+  wt = 0;
+
+  return 0;
+}
+
+
+extern "C"
+int
+pthread_barrier_wait (pthread_barrier_t * bar)
+{
+  if (unlikely (! pthread_barrier::is_good_object (bar)))
+    return EINVAL;
+
+  return (*bar)->wait ();
+}
+
+
+int
+pthread_barrier::wait ()
+{
+  int retval = pthread_mutex_lock (&mtx);
+  if (unlikely (retval != 0))
+    return retval;
+
+  if (unlikely (wt >= cnt))
+    {
+      api_fatal ("wt >= cnt (%u >= %u)", wt, cnt);
+      return EINVAL;
+    }
+
+  if (unlikely (++wt == cnt))
+    {
+      ++cyc;
+      /* This is the last thread to reach the barrier. Signal the waiting
+         threads to wake up and continue.  */
+      retval = pthread_cond_broadcast (&cond);
+      if (unlikely (retval != 0))
+        goto cond_error;
+
+      wt = 0;
+      retval = pthread_mutex_unlock (&mtx);
+      if (unlikely (retval != 0))
+        abort ();
+
+      return PTHREAD_BARRIER_SERIAL_THREAD;
+    }
+  else
+    {
+      uint64_t cycle = cyc;
+      do
+        {
+          retval = pthread_cond_wait (&cond, &mtx);
+          if (unlikely (retval != 0))
+            goto cond_error;
+        }
+      while (unlikely (cycle == cyc));
+
+      retval = pthread_mutex_unlock (&mtx);
+      if (unlikely (retval != 0))
+        api_fatal ("pthread_mutex_unlock (%p) = %d", &mtx, retval);
+
+      return 0;
+    }
+
+ cond_error:
+  {
+    --wt;
+    int ret = pthread_mutex_unlock (&mtx);
+    if (unlikely (ret != 0))
+        api_fatal ("pthread_mutex_unlock (%p) = %d", &mtx, ret);
+
+    return retval;
+  }
+}

@@ -1,8 +1,5 @@
 /* heap.cc: Cygwin heap manager.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -41,11 +38,11 @@ eval_start_address ()
      So we let the heap start at 0x6:00000000L. */
   uintptr_t start_address = 0x600000000L;
 #else
-  /* Starting with Vista, Windows performs heap ASLR.  This spoils the entire
-     region below 0x20000000 for us, because that region is used by Windows
-     to randomize heap and stack addresses.  Therefore we put our heap into a
-     safe region starting at 0x20000000.  This should work right from the start
-     in 99% of the cases. */
+  /* Windows performs heap ASLR.  This spoils the entire region below
+     0x20000000 for us, because that region is used by Windows to randomize
+     heap and stack addresses.  Therefore we put our heap into a safe region
+     starting at 0x20000000.  This should work right from the start in 99%
+     of the cases. */
   uintptr_t start_address = 0x20000000L;
   if ((uintptr_t) NtCurrentTeb () >= 0xbf000000L)
     {
@@ -57,9 +54,9 @@ eval_start_address ()
 	 the current TEB address as very simple test that this is a large
 	 address aware executable.
 	 The above test for an address beyond 0xbf000000 is supposed to
-	 make sure that we really have 3GB on a 32 bit system.  XP and
-	 later support smaller large address regions, but then it's not
-	 that interesting for us to use it for the heap.
+	 make sure that we really have 3GB on a 32 bit system.  Windows
+	 supports smaller large address regions, but then it's not that
+	 interesting for us to use it for the heap.
 	 If the region is big enough, the heap gets allocated at its
 	 start.  What we get are 0.999 or 1.999 Gigs of free contiguous
 	 memory for heap, thread stacks, and shared memory regions. */

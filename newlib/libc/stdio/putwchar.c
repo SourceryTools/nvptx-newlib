@@ -26,34 +26,46 @@
 
 /*
 FUNCTION
-<<putwchar>>---write a wide character to standard output
+<<putwchar>>, <<putwchar_unlocked>>---write a wide character to standard output
 
 INDEX
 	putwchar
 INDEX
+	putwchar_unlocked
+INDEX
 	_putwchar_r
+INDEX
+	_putwchar_unlocked_r
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <wchar.h>
 	wint_t putwchar(wchar_t <[wc]>);
 
+	#include <wchar.h>
+	wint_t putwchar_unlocked(wchar_t <[wc]>);
+
+	#include <wchar.h>
 	wint_t _putwchar_r(struct _reent *<[reent]>, wchar_t <[wc]>);
 
-TRAD_SYNOPSIS
 	#include <wchar.h>
-	wint_t putwchar(<[wc]>)
-	wchar_t <[wc]>;
-
-	wint_t _putwchar_r(<[reent]>, <[wc]>)
-	struct _reent *<[reent]>;
-	wchar_t <[wc]>;
+	wint_t _putwchar_unlocked_r(struct _reent *<[reent]>, wchar_t <[wc]>);
 
 DESCRIPTION
 The <<putwchar>> function or macro is the wide-character equivalent of
 the <<putchar>> function. It writes the wide character wc to stdout.
 
-The alternate function <<_putwchar_r>> is a reentrant version.  The
-extra argument <[reent]> is a pointer to a reentrancy structure.
+<<putwchar_unlocked>> is a non-thread-safe version of <<putwchar>>.
+<<putwchar_unlocked>> may only safely be used within a scope
+protected by flockfile() (or ftrylockfile()) and funlockfile().  This
+function may safely be used in a multi-threaded program if and only
+if they are called while the invoking thread owns the (FILE *)
+object, as is the case after a successful call to the flockfile() or
+ftrylockfile() functions.  If threads are disabled, then
+<<putwchar_unlocked>> is equivalent to <<putwchar>>.
+
+The alternate functions <<_putwchar_r>> and <<_putwchar_unlocked_r>> are
+reentrant versions of the above.  The extra argument <[reent]> is a pointer
+to a reentrancy structure.
 
 RETURNS
 If successful, <<putwchar>> returns its argument <[wc]>.  If an error
@@ -61,7 +73,9 @@ intervenes, the result is <<EOF>>.  You can use `<<ferror(stdin)>>' to
 query for errors.
 
 PORTABILITY
-C99
+<<putwchar>> is required by C99.
+
+<<putwchar_unlocked>> is a GNU extension.
 */
 
 #include <_ansi.h>
@@ -73,8 +87,7 @@ C99
 #undef putwchar
 
 wint_t
-_DEFUN(_putwchar_r, (ptr, wc),
-	struct _reent *ptr _AND
+_putwchar_r (struct _reent *ptr,
 	wchar_t wc)
 {
   return _fputwc_r (ptr, wc, stdout);
@@ -84,8 +97,7 @@ _DEFUN(_putwchar_r, (ptr, wc),
  * Synonym for fputwc(wc, stdout).
  */
 wint_t
-_DEFUN(putwchar, (wc),
-	wchar_t wc)
+putwchar (wchar_t wc)
 {
   _REENT_SMALL_CHECK_INIT (_REENT);
   return fputwc (wc, stdout);

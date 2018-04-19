@@ -1,7 +1,5 @@
 /* string.h: Extra string defs
 
-   Copyright 2001, 2002, 2003, 2007, 2008, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -79,13 +77,8 @@ int __stdcall cygwin_strncasecmp (const char *, const char *, size_t);
 #define strcasematch(s1,s2)	(!cygwin_strcasecmp ((s1),(s2)))
 #define strncasematch(s1,s2,n)	(!cygwin_strncasecmp ((s1),(s2),(n)))
 
-#undef strlwr
-#define strlwr cygwin_strlwr
-char * __stdcall cygwin_strlwr (char *);
-
-#undef strupr
-#define strupr cygwin_strupr
-char * __stdcall cygwin_strupr (char *);
+char *strlwr (char *);
+char *strupr (char *);
 
 #endif /* __INSIDE_CYGWIN__ */
 

@@ -1,8 +1,5 @@
 /* cygheap.cc: Cygwin heap manager.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013, 2014 Red Hat, Inc.
-
    This file is part of Cygwin.
 
    This software is a copyrighted work licensed under the terms of the
@@ -31,7 +28,7 @@
 
 static mini_cygheap NO_COPY cygheap_dummy =
 {
-  {__utf8_mbtowc, __utf8_wctomb}
+  {__utf8_mbtowc}
 };
 
 init_cygheap NO_COPY *cygheap = (init_cygheap *) &cygheap_dummy;
@@ -130,7 +127,7 @@ init_cygheap::close_ctty ()
    cygcheck can print the paths into which the Cygwin DLL has been
    installed for debugging purposes.
 
-   Last but not least, the new cygwin properties datastrcuture is checked
+   Last but not least, the new cygwin properties datastructure is checked
    for the "disabled_key" value, which is used to determine whether the
    installation key is actually added to all object names or not.  This is
    used as a last resort for debugging purposes, usually.  However, there
@@ -140,6 +137,8 @@ init_cygheap::close_ctty ()
 void
 init_cygheap::init_installation_root ()
 {
+  ptrdiff_t len = 0;
+
   if (!GetModuleFileNameW (cygwin_hmodule, installation_root, PATH_MAX))
     api_fatal ("Can't initialize Cygwin installation root dir.\n"
 	       "GetModuleFileNameW(%p, %p, %u), %E",
@@ -147,16 +146,18 @@ init_cygheap::init_installation_root ()
   PWCHAR p = installation_root;
   if (wcsncasecmp (p, L"\\\\", 2))	/* Normal drive letter path */
     {
-      p = wcpcpy (p, L"\\??\\");
-      GetModuleFileNameW (cygwin_hmodule, p, PATH_MAX - 4);
+      len = 4;
+      memmove (p + 4, p, PATH_MAX - 4);
+      p = wcpncpy (p, L"\\\\?\\", 4);
     }
   else
     {
       bool unc = false;
       if (wcsncmp (p + 2, L"?\\", 2))	/* No long path prefix, so UNC path. */
 	{
-	  p = wcpcpy (p, L"\\??\\UN");
-	  GetModuleFileNameW (cygwin_hmodule, p, PATH_MAX - 6);
+	  len = 6;
+	  memmove (p + 6, p, PATH_MAX - 6);
+	  p = wcpncpy (p, L"\\??\\UN", 6);
 	  *p = L'C';
 	  unc = true;
 	}
@@ -170,12 +171,12 @@ init_cygheap::init_installation_root ()
 	}
     }
   installation_root[1] = L'?';
-
   RtlInitEmptyUnicodeString (&installation_key, installation_key_buf,
 			     sizeof installation_key_buf);
   RtlInt64ToHexUnicodeString (hash_path_name (0, installation_root),
 			      &installation_key, FALSE);
 
+  /* Strip off last path component ("\\cygwin1.dll") */
   PWCHAR w = wcsrchr (installation_root, L'\\');
   if (w)
     {
@@ -185,6 +186,20 @@ init_cygheap::init_installation_root ()
   if (!w)
     api_fatal ("Can't initialize Cygwin installation root dir.\n"
 	       "Invalid DLL path");
+
+  /* Copy result into installation_dir before stripping off "bin" dir and
+     revert to Win32 path.  This path is added to the Windows environment
+     in build_env.  See there for a description. */
+  installation_dir_len = wcpncpy (installation_dir, installation_root + len,
+				  PATH_MAX)
+			 - installation_dir;
+  if (len == 4)		/* Local path */
+    ;
+  else if (len == 6)	/* UNC path */
+    installation_dir[0] = L'\\';
+  else			/* Long, prefixed path */
+    installation_dir[1] = L'\\';
+
   /* If w < p, the Cygwin DLL resides in the root dir of a drive or network
      path.  In that case, if we strip off yet another backslash, the path
      becomes invalid.  We avoid that here so that the DLL also works in this
@@ -200,12 +215,6 @@ init_cygheap::init_installation_root ()
       if (NT_SUCCESS (r.set_string (installation_key_buf,
 				    installation_root)))
 	break;
-    }
-
-  if (cygwin_props.disable_key)
-    {
-      installation_key.Length = 0;
-      installation_key.Buffer[0] = L'\0';
     }
 }
 
@@ -236,8 +245,6 @@ cygheap_init ()
 	cygheap->bucket_val[b] = sz[b & 1];
       /* Default locale settings. */
       cygheap->locale.mbtowc = __utf8_mbtowc;
-      cygheap->locale.wctomb = __utf8_wctomb;
-      strcpy (cygheap->locale.charset, "UTF-8");
       /* Set umask to a sane default. */
       cygheap->umask = 022;
       cygheap->rlim_core = RLIM_INFINITY;
@@ -247,6 +254,17 @@ cygheap_init ()
   if (!cygheap->sigs)
     sigalloc ();
   cygheap->init_tls_list ();
+}
+
+/* Initial Cygwin heap setup.
+   Called by root process of a Cygwin process tree. */
+void
+setup_cygheap ()
+{
+  cygheap_init ();
+  cygheap->user.init ();
+  cygheap->init_installation_root (); /* Requires user.init! */
+  cygheap->pg.init ();
 }
 
 #define nextpage(x) ((char *) roundup2 ((uintptr_t) (x), \
@@ -386,7 +404,6 @@ creturn (cygheap_types x, cygheap_entry * c, unsigned len, const char *fn = NULL
   char *cend = ((char *) c + sizeof (*c) + len);
   if (cygheap_max < cend)
     cygheap_max = cend;
-  MALLOC_CHECK;
   return (void *) c->data;
 }
 
@@ -394,7 +411,6 @@ inline static void *
 cmalloc (cygheap_types x, size_t n, const char *fn)
 {
   cygheap_entry *c;
-  MALLOC_CHECK;
   c = (cygheap_entry *) _cmalloc (sizeof_cygheap (n));
   return creturn (x, c, n, fn);
 }
@@ -414,7 +430,6 @@ cmalloc_abort (cygheap_types x, size_t n)
 inline static void *
 crealloc (void *s, size_t n, const char *fn)
 {
-  MALLOC_CHECK;
   if (s == NULL)
     return cmalloc (HEAP_STR, n);	// kludge
 
@@ -442,7 +457,6 @@ cfree (void *s)
 {
   assert (!inheap (s));
   _cfree (tocygheap (s));
-  MALLOC_CHECK;
 }
 
 extern "C" void __reg2
@@ -457,7 +471,6 @@ inline static void *
 ccalloc (cygheap_types x, size_t n, size_t size, const char *fn)
 {
   cygheap_entry *c;
-  MALLOC_CHECK;
   n *= size;
   c = (cygheap_entry *) _cmalloc (sizeof_cygheap (n));
   if (c)
@@ -480,48 +493,40 @@ ccalloc_abort (cygheap_types x, size_t n, size_t size)
 extern "C" PWCHAR __reg1
 cwcsdup (PCWSTR s)
 {
-  MALLOC_CHECK;
   PWCHAR p = (PWCHAR) cmalloc (HEAP_STR, (wcslen (s) + 1) * sizeof (WCHAR));
   if (!p)
     return NULL;
   wcpcpy (p, s);
-  MALLOC_CHECK;
   return p;
 }
 
 extern "C" PWCHAR __reg1
 cwcsdup1 (PCWSTR s)
 {
-  MALLOC_CHECK;
   PWCHAR p = (PWCHAR) cmalloc (HEAP_1_STR, (wcslen (s) + 1) * sizeof (WCHAR));
   if (!p)
     return NULL;
   wcpcpy (p, s);
-  MALLOC_CHECK;
   return p;
 }
 
 extern "C" char *__reg1
 cstrdup (const char *s)
 {
-  MALLOC_CHECK;
   char *p = (char *) cmalloc (HEAP_STR, strlen (s) + 1);
   if (!p)
     return NULL;
   strcpy (p, s);
-  MALLOC_CHECK;
   return p;
 }
 
 extern "C" char *__reg1
 cstrdup1 (const char *s)
 {
-  MALLOC_CHECK;
   char *p = (char *) cmalloc (HEAP_1_STR, strlen (s) + 1);
   if (!p)
     return NULL;
   strcpy (p, s);
-  MALLOC_CHECK;
   return p;
 }
 
@@ -588,8 +593,9 @@ init_cygheap::init_tls_list ()
   else
     {
       sthreads = THREADLIST_CHUNK;
-      threadlist = (_cygtls **) ccalloc_abort (HEAP_TLS, cygheap->sthreads,
-					       sizeof (cygheap->threadlist[0]));
+      threadlist = (threadlist_t *)
+		   ccalloc_abort (HEAP_TLS, cygheap->sthreads,
+				  sizeof (cygheap->threadlist[0]));
     }
   tls_sentry::lock.init ("thread_tls_sentry");
 }
@@ -601,62 +607,128 @@ init_cygheap::add_tls (_cygtls *t)
   tls_sentry here (INFINITE);
   if (nthreads >= cygheap->sthreads)
     {
-      threadlist = (_cygtls **)
+      threadlist = (threadlist_t *)
 	crealloc_abort (threadlist, (sthreads += THREADLIST_CHUNK)
 			* sizeof (threadlist[0]));
-      // memset (threadlist + nthreads, 0, THREADLIST_CHUNK * sizeof (threadlist[0]));
+#if 0
+      memset (threadlist + nthreads, 0,
+	      THREADLIST_CHUNK * sizeof (threadlist[0]));
+#endif
     }
 
-  threadlist[nthreads++] = t;
+  /* Create a mutex to lock the thread's _cygtls area.  This is required for
+     the following reason:  The thread's _cygtls area is on the thread's
+     own stack.  Thus, when the thread exits, its _cygtls area is automatically
+     destroyed by the OS.  Thus, when this happens while the signal thread
+     still utilizes the thread's _cygtls area, things go awry.
+
+     The following methods take this into account:
+     
+     - The thread mutex is generally only locked under tls_sentry locking.
+     - remove_tls, called from _cygtls::remove, locks the mutex before
+       removing the threadlist entry and _cygtls::remove then unlocks and
+       destroyes the mutex.
+     - find_tls, called from several places but especially from the signal
+       thread, will lock the mutex on exit and the caller can access the
+       _cygtls area locked.  Always make sure to unlock the mutex when the
+       _cygtls area isn't needed anymore. */
+  threadlist[nthreads].thread = t;
+  threadlist[nthreads].mutex = CreateMutexW (&sec_none_nih, FALSE, NULL);
+  if (!threadlist[nthreads].mutex)
+    api_fatal ("Can't create per-thread mutex, %E");
+  ++nthreads;
 }
 
-void
-init_cygheap::remove_tls (_cygtls *t, DWORD wait)
+HANDLE __reg3
+init_cygheap::remove_tls (_cygtls *t)
 {
-  tls_sentry here (wait);
+  HANDLE mutex = NULL;
+
+  tls_sentry here (INFINITE);
   if (here.acquired ())
     {
       for (uint32_t i = 0; i < nthreads; i++)
-	if (t == threadlist[i])
+	if (t == threadlist[i].thread)
 	  {
+	    mutex = threadlist[i].mutex;
+	    WaitForSingleObject (mutex, INFINITE);
 	    if (i < --nthreads)
 	      threadlist[i] = threadlist[nthreads];
 	    debug_only_printf ("removed %p element %u", this, i);
 	    break;
 	  }
     }
+  /* Leave with locked mutex.  The calling function is responsible for
+     unlocking the mutex. */
+  return mutex;
 }
 
-_cygtls __reg3 *
+threadlist_t __reg2 *
+init_cygheap::find_tls (_cygtls *tls)
+{
+  tls_sentry here (INFINITE);
+
+  threadlist_t *t = NULL;
+  int ix = -1;
+  while (++ix < (int) nthreads)
+    {
+      if (!threadlist[ix].thread->tid
+	  || !threadlist[ix].thread->initialized)
+	;
+      if (threadlist[ix].thread == tls)
+	{
+	  t = &threadlist[ix];
+	  break;
+	}
+    }
+  /* Leave with locked mutex.  The calling function is responsible for
+     unlocking the mutex. */
+  if (t)
+    WaitForSingleObject (t->mutex, INFINITE);
+  return t;
+}
+
+threadlist_t __reg3 *
 init_cygheap::find_tls (int sig, bool& issig_wait)
 {
   debug_printf ("sig %d\n", sig);
   tls_sentry here (INFINITE);
 
-  static int NO_COPY ix;
-
-  _cygtls *t = NULL;
+  threadlist_t *t = NULL;
   issig_wait = false;
 
-  myfault efault;
-  if (efault.faulted ())
-    threadlist[ix]->remove (INFINITE);
-  else
+  int ix = -1;
+  /* Scan thread list looking for valid signal-delivery candidates */
+  while (++ix < (int) nthreads)
     {
-      ix = -1;
-      /* Scan thread list looking for valid signal-delivery candidates */
-      while (++ix < (int) nthreads)
-	if (!threadlist[ix]->tid)
-	  continue;
-	else if (sigismember (&(threadlist[ix]->sigwait_mask), sig))
-	  {
-	    t = cygheap->threadlist[ix];
-	    issig_wait = true;
-	    goto out;
-	  }
-	else if (!t && !sigismember (&(threadlist[ix]->sigmask), sig))
-	  t = cygheap->threadlist[ix];
+      /* Only pthreads have tid set to non-0. */
+      if (!threadlist[ix].thread->tid
+	  || !threadlist[ix].thread->initialized)
+	;
+      else if (sigismember (&(threadlist[ix].thread->sigwait_mask), sig))
+	{
+	  t = &cygheap->threadlist[ix];
+	  issig_wait = true;
+	  break;
+	}
+      else if (!t && !sigismember (&(threadlist[ix].thread->sigmask), sig))
+	  t = &cygheap->threadlist[ix];
     }
-out:
+  /* Leave with locked mutex.  The calling function is responsible for
+     unlocking the mutex. */
+  if (t)
+    WaitForSingleObject (t->mutex, INFINITE);
   return t;
+}
+
+/* Called from profil.c to sample all non-main thread PC values for profiling */
+extern "C" void
+cygheap_profthr_all (void (*profthr_byhandle) (HANDLE))
+{
+  for (uint32_t ix = 0; ix < nthreads; ix++)
+    {
+      _cygtls *tls = cygheap->threadlist[ix].thread;
+      if (tls->tid)
+	profthr_byhandle (tls->tid->win32_obj_id);
+    }
 }

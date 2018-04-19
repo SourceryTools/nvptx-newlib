@@ -12,7 +12,7 @@
  */
 /*
 FUNCTION
-<<lrint>>, <<lrintf>>, <<llrint>>, <<llrintf>>--round to integer
+<<lrint>>, <<lrintf>>, <<llrint>>, <<llrintf>>---round to integer
 INDEX
 	lrint
 INDEX
@@ -22,7 +22,7 @@ INDEX
 INDEX
 	llrintf
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <math.h>
 	long int lrint(double <[x]>);
 	long int lrintf(float <[x]>);

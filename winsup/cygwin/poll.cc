@@ -1,8 +1,5 @@
 /* poll.cc. Implements poll(2) via usage of select(2) call.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011,
-   2012 Red Hat, Inc.
-
    This file is part of Cygwin.
 
    This software is a copyrighted work licensed under the terms of the
@@ -12,6 +9,7 @@
 #define FD_SETSIZE 16384		// lots of fds
 #include "winsup.h"
 #include <sys/poll.h>
+#include <sys/param.h>
 #include <stdlib.h>
 #define USE_SYS_TYPES_FD_SET
 #include "cygerrno.h"
@@ -21,6 +19,7 @@
 #include "cygheap.h"
 #include "pinfo.h"
 #include "sigproc.h"
+#include "select.h"
 
 extern "C" int
 poll (struct pollfd *fds, nfds_t nfds, int timeout)
@@ -95,12 +94,12 @@ poll (struct pollfd *fds, nfds_t nfds, int timeout)
     {
       if (fds[i].fd >= 0 && fds[i].revents != POLLNVAL)
 	{
-	  fhandler_socket *sock;
+	  fhandler_socket_wsock *sock;
 
 	  /* Check if the descriptor has been closed, or if shutdown for the
 	     read side has been called on a socket. */
 	  if (cygheap->fdtab.not_open (fds[i].fd)
-	      || ((sock = cygheap->fdtab[fds[i].fd]->is_socket ())
+	      || ((sock = cygheap->fdtab[fds[i].fd]->is_wsock_socket ())
 		  && sock->saw_shutdown_read ()))
 	    fds[i].revents = POLLHUP;
 	  else
@@ -115,9 +114,10 @@ poll (struct pollfd *fds, nfds_t nfds, int timeout)
 		   So it looks like there's actually no good reason to
 		   return POLLERR. */
 		fds[i].revents |= POLLIN;
-	      /* Handle failed connect. */
-	      if (FD_ISSET(fds[i].fd, write_fds)
-		  && (sock = cygheap->fdtab[fds[i].fd]->is_socket ())
+	      /* Handle failed connect.  A failed connect implicitly sets
+	         POLLOUT, if requested, but it doesn't set POLLIN. */
+	      if ((fds[i].events & POLLIN)
+		  && (sock = cygheap->fdtab[fds[i].fd]->is_wsock_socket ())
 		  && sock->connect_state () == connect_failed)
 		fds[i].revents |= (POLLIN | POLLERR);
 	      else
@@ -143,16 +143,19 @@ ppoll (struct pollfd *fds, nfds_t nfds, const struct timespec *timeout_ts,
   int timeout;
   sigset_t oldset = _my_tls.sigmask;
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  timeout = (timeout_ts == NULL)
-	    ? -1
-	    : (timeout_ts->tv_sec * 1000 + timeout_ts->tv_nsec / 1000000);
-  if (sigmask)
-    set_signal_mask (_my_tls.sigmask, *sigmask);
-  int ret = poll (fds, nfds, timeout);
-  if (sigmask)
-    set_signal_mask (_my_tls.sigmask, oldset);
-  return ret;
+  __try
+    {
+      timeout = (timeout_ts == NULL)
+		? -1
+		: (timeout_ts->tv_sec * 1000 + timeout_ts->tv_nsec / 1000000);
+      if (sigmask)
+	set_signal_mask (_my_tls.sigmask, *sigmask);
+      int ret = poll (fds, nfds, timeout);
+      if (sigmask)
+	set_signal_mask (_my_tls.sigmask, oldset);
+      return ret;
+    }
+  __except (EFAULT) {}
+  __endtry
+  return -1;
 }

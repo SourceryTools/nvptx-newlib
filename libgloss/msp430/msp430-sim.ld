@@ -1,4 +1,4 @@
-/* Copyright (c) 2005,2008,2009,2011,2013 Red Hat, Inc. All rights reserved.
+/* Copyright (c) 2013-2015 Red Hat, Inc. All rights reserved.
 
    This copyrighted material is made available to anyone wishing to use, modify,
    copy, or redistribute it subject to the terms and conditions of the BSD
@@ -8,22 +8,18 @@
    is available at http://www.opensource.org/licenses. Any Red Hat trademarks that
    are incorporated in the source code or documentation are not subject to the BSD
    License and may only be used or replicated with the express permission of
-   Red Hat, Inc.
-*/
+   Red Hat, Inc.  */
 
-/* Default linker script, for normal executables */
+/* Default linker script, for normal MSP430 executables.  */
+
 OUTPUT_ARCH(msp430)
 ENTRY(_start)
-
-/* Do we need any of these for elf?
-   __DYNAMIC = 0;    */
 
 INCLUDE intr_vectors.ld
 
 MEMORY
 {
-	RAM (w)      : ORIGIN = 0x00200, LENGTH = 0x0ee00
-	RESETVEC (w) : ORIGIN = 0x0fffe, LENGTH = 0x00002
+  RAM (w) : ORIGIN = 0x00500, LENGTH = 0x0eb00
 }
 
 SECTIONS
@@ -31,15 +27,21 @@ SECTIONS
   .resetvec :
   {
     *(.resetvec)
-  } > RESETVEC
+  } > VECT31
 
-  .rodata : {
+  .rodata :
+  {
     . = ALIGN(2);
     *(.plt)
+    . = ALIGN(2);
+    *(.lower.rodata.* .lower.rodata)
+    . = ALIGN(2);
     *(.rodata .rodata.* .gnu.linkonce.r.* .const .const:*)
+    . = ALIGN(2);
+    *(.either.rodata.* .either.rodata)
+    . = ALIGN(2);
     *(.rodata1)
-    *(.eh_frame_hdr)
-    KEEP (*(.eh_frame))
+
     KEEP (*(.gcc_except_table)) *(.gcc_except_table.*)
     PROVIDE (__preinit_array_start = .);
     KEEP (*(.preinit_array))
@@ -52,7 +54,18 @@ SECTIONS
     KEEP (*(.fini_array))
     KEEP (*(SORT(.fini_array.*)))
     PROVIDE (__fini_array_end = .);
-    LONG(0); /* Sentinel.  */
+
+  } > RAM
+
+  /* Note: This is a separate .rodata section for sections which are
+     read only but which older linkers treat as read-write.
+     This prevents older linkers from marking the entire .rodata
+     section as read-write.  */
+  .rodata2 :
+  {
+    . = ALIGN(2);
+    *(.eh_frame_hdr)
+    KEEP (*(.eh_frame))
 
     /* gcc uses crtbegin.o to find the start of the constructors, so
        we make sure it is first.  Because this is a wildcard, it
@@ -76,12 +89,15 @@ SECTIONS
     KEEP (*(.dtors))
   } > RAM
 
-  .text           :
+  .text :
   {
     . = ALIGN(2);
     PROVIDE (_start = .);
     KEEP (*(SORT(.crt_*)))
-    *(.lowtext .text .stub .text.* .gnu.linkonce.t.* .text:*)
+    *(.lowtext)
+    *(.lower.text.* .lower.text)
+    *(.text .stub .text.* .gnu.linkonce.t.* .text:*)
+    *(.either.text.* .either.text)
     KEEP (*(.text.*personality*))
     /* .gnu.warning sections are handled specially by elf32.em.  */
     *(.gnu.warning)
@@ -95,15 +111,21 @@ SECTIONS
     KEEP (*(.tm_clone_table))
   } > RAM
 
-  .data : {
+  .data :
+  {
     . = ALIGN(2);
     PROVIDE (__datastart = .);
+
+    *(.lower.data.* .lower.data)
+
+    *(.data .data.* .gnu.linkonce.d.*)
+
+    *(.either.data.* .either.data)
 
     KEEP (*(.jcr))
     *(.data.rel.ro.local) *(.data.rel.ro*)
     *(.dynamic)
 
-    *(.data .data.* .gnu.linkonce.d.*)
     KEEP (*(.gnu.linkonce.d.*personality*))
     SORT(CONSTRUCTORS)
     *(.data1)
@@ -126,38 +148,87 @@ SECTIONS
   PROVIDE(__romdatastart = LOADADDR(.data));
   PROVIDE (__romdatacopysize = SIZEOF(.data));
 
-  .bss : {
+  .bss :
+  {
     . = ALIGN(2);
     PROVIDE (__bssstart = .);
+    *(.lower.bss.* .lower.bss)
     *(.dynbss)
     *(.sbss .sbss.*)
     *(.bss .bss.* .gnu.linkonce.b.*)
+    *(.either.bss.* .either.bss)
+    . = ALIGN(2);
+    *(COMMON)
+    . = ALIGN(2);
     PROVIDE (__bssend = .);
   } > RAM
   PROVIDE (__bsssize = SIZEOF(.bss));
 
-  /* This section contains data that is not initialised at startup.  */
-  .noinit : {
+  /* This section contains data that is not initialised during load
+     *or* application reset.  */
+  .noinit (NOLOAD) :
+  {
     . = ALIGN(2);
     PROVIDE (__noinit_start = .);
     *(.noinit)
     . = ALIGN(2);
-    *(COMMON)
     PROVIDE (__noinit_end = .);
   } > RAM
-    
+
+  /* This section is intended to contain data that *is* initialised during load
+     but *not* on application reset.  Normally the section would be stored in
+     FLASH RAM, but this is not available here.  We just have to hope that the
+     programmer knows what they are doing.  */
+  .persistent :
+  {
+    . = ALIGN(2);
+    PROVIDE (__persistent_start = .);
+    *(.persistent)
+    . = ALIGN(2);
+    PROVIDE (__persistent_end = .);
+  } > RAM
+ 
   _end = .;
   PROVIDE (end = .);
+
+  /* The __stack_size value of 0x100 is just a guess, but since it is
+     PROVIDEd the user can override it on the command line.  It has to be
+     set here, rather than inside the .stack section, as symbols defined
+     inside sections are only evaluated during the final phase of the link,
+     long after the ASSERT is checked.  An ASSERT referencing a PROVIDED but
+     not yet evaluated symbol will automatically fail.
+
+     FIXME: It would be nice if this value could be automatically set via
+     gcc's -fstack-usage command line option somehow.  */
+  PROVIDE (__stack_size = 0x100);
 
   .stack (ORIGIN (RAM) + LENGTH(RAM)) :
   {
     PROVIDE (__stack = .);
     *(.stack)
+
+    /* Linker section checking ignores empty sections like
+       this one so we have to have our own test here.  */
+    /* FIXME: This test is triggering erroneously.  I have not figured
+       out why yet, but I am disabling it for now as it prevents the
+       gcc testsuite from working.  */
+    /* ASSERT (__stack > (_end + __stack_size),
+            "Error: Too much data - no room left for the stack"); */
+  }
+
+  /* Make sure that .upper sections are not used without -mlarge support.  */
+  .upper :
+  {
+    *(.upper.rodata.* .upper.rodata)
+    *(.upper.data.* .upper.data)
+    *(.upper.bss.* .upper.bss)
+    *(.upper.text.* .upper.text)  
+    ASSERT (SIZEOF(.upper) == 0, "This MCU does not support high memory");
   }
 
   /* The rest are all not normally part of the runtime image.  */
 
-  .MP430.attributes 0 :
+  .MSP430.attributes 0 :
   {
     KEEP (*(.MSP430.attributes))
     KEEP (*(.gnu.attributes))
@@ -175,13 +246,13 @@ SECTIONS
   /* DWARF debug sections.
      Symbols in the DWARF debugging sections are relative to the beginning
      of the section so we begin them at 0.  */
-  /* DWARF 1 */
+  /* DWARF 1.  */
   .debug          0 : { *(.debug) }
   .line           0 : { *(.line) }
-  /* GNU DWARF 1 extensions */
+  /* GNU DWARF 1 extensions.  */
   .debug_srcinfo  0 : { *(.debug_srcinfo) }
   .debug_sfnames  0 : { *(.debug_sfnames) }
-  /* DWARF 1.1 and DWARF 2 */
+  /* DWARF 1.1 and DWARF 2.  */
   .debug_aranges  0 : { *(.debug_aranges) }
   .debug_pubnames 0 : { *(.debug_pubnames) }
   /* DWARF 2 */
@@ -192,12 +263,12 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-  /* SGI/MIPS DWARF 2 extensions */
+  /* SGI/MIPS DWARF 2 extensions.  */
   .debug_weaknames 0 : { *(.debug_weaknames) }
   .debug_funcnames 0 : { *(.debug_funcnames) }
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
-  /* DWARF 3 */
+  /* DWARF 3.  */
   .debug_pubtypes 0 : { *(.debug_pubtypes) }
   .debug_ranges   0 : { *(.debug_ranges) }
   /* DWARF Extension.  */

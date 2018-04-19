@@ -1,8 +1,5 @@
 /* sigproc.cc: inter/intra signal and sub process handler
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -79,9 +76,9 @@ public:
   void add (sigpacket&);
   bool pending () {retry = true; return !!start.next;}
   void clear (int sig) {sigs[sig].si.si_signo = 0;}
-  friend void __reg1 sig_dispatch_pending (bool);;
+  void clear (_cygtls *tls);
+  friend void __reg1 sig_dispatch_pending (bool);
   friend void WINAPI wait_sig (VOID *arg);
-  friend void sigproc_init ();
 };
 
 Static pending_signals sigq;
@@ -155,7 +152,8 @@ proc_can_be_signalled (_pinfo *p)
 bool __reg1
 pid_exists (pid_t pid)
 {
-  return pinfo (pid)->exists ();
+  pinfo p (pid);
+  return p && p->exists ();
 }
 
 /* Return true if this is one of our children, false otherwise.  */
@@ -397,6 +395,30 @@ sig_clear (int sig)
   sigq.clear (sig);
 }
 
+/* Clear pending signals of specific thread.  Called under TLS lock from
+   _cygtls::remove_pending_sigs. */
+void
+pending_signals::clear (_cygtls *tls)
+{
+  sigpacket *q = &start, *qnext;
+
+  while ((qnext = q->next))
+    if (qnext->sigtls == tls)
+      {
+	qnext->si.si_signo = 0;
+	q->next = qnext->next;
+      }
+    else
+      q = qnext;
+}
+
+/* Clear pending signals of specific thread.  Called from _cygtls::remove */
+void
+_cygtls::remove_pending_sigs ()
+{
+  sigq.clear (this);
+}
+
 extern "C" int
 sigpending (sigset_t *mask)
 {
@@ -426,7 +448,7 @@ sigproc_init ()
   char char_sa_buf[1024];
   PSECURITY_ATTRIBUTES sa = sec_user_nih ((PSECURITY_ATTRIBUTES) char_sa_buf, cygheap->user.sid());
   DWORD err = fhandler_pipe::create (sa, &my_readsig, &my_sendsig,
-				     sizeof (sigpacket), "sigwait",
+				     NSIG * sizeof (sigpacket), "sigwait",
 				     PIPE_ADD_PID);
   if (err)
     {
@@ -451,6 +473,14 @@ exit_thread (DWORD res)
   if (no_thread_exit_protect ())
     ExitThread (res);
   sigfillset (&_my_tls.sigmask);	/* No signals wanted */
+
+  /* CV 2014-11-21: Disable the code sending a signal.  The problem with
+     this code is that it allows deadlocks under signal-rich multithreading
+     conditions.
+     The original problem reported in 2012 couldn't be reproduced anymore,
+     even disabling this code.  Tested on XP 32, Vista 32, W7 32, WOW64, 64,
+     W8.1 WOW64, 64. */
+#if 0
   lock_process for_now;			/* May block indefinitely when exiting. */
   HANDLE h;
   if (!DuplicateHandle (GetCurrentProcess (), GetCurrentThread (),
@@ -469,16 +499,17 @@ exit_thread (DWORD res)
   siginfo_t si = {__SIGTHREADEXIT, SI_KERNEL};
   si.si_cyg = h;
   sig_send (myself_nowait, si, &_my_tls);
+#endif
   ExitThread (res);
 }
 
 int __reg3
-sig_send (_pinfo *p, int sig, _cygtls *tid)
+sig_send (_pinfo *p, int sig, _cygtls *tls)
 {
   siginfo_t si = {};
   si.si_signo = sig;
   si.si_code = SI_KERNEL;
-  return sig_send (p, si, tid);
+  return sig_send (p, si, tls);
 }
 
 /* Send a signal to another process by raising its signal semaphore.
@@ -599,7 +630,11 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
   else if (si.si_signo == __SIGPENDING)
     pack.mask = &pending;
   else if (si.si_signo == __SIGFLUSH || si.si_signo > 0)
-    pack.mask = tls ? &tls->sigmask : &_main_tls->sigmask;
+    {
+      threadlist_t *tl_entry = cygheap->find_tls (tls ? tls : _main_tls);
+      pack.mask = tls ? &tls->sigmask : &_main_tls->sigmask;
+      cygheap->unlock_tls (tl_entry);
+    }
   else
     pack.mask = NULL;
 
@@ -627,15 +662,27 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
   else
     {
       size_t n = strlen (si._si_commune._si_str);
-      char *p = leader = (char *) alloca (sizeof (pack) + sizeof (n) + n);
+      packsize = sizeof (pack) + sizeof (n) + n;
+      char *p = leader = (char *) alloca (packsize);
       memcpy (p, &pack, sizeof (pack)); p += sizeof (pack);
       memcpy (p, &n, sizeof (n)); p += sizeof (n);
       memcpy (p, si._si_commune._si_str, n); p += n;
-      packsize = p - leader;
     }
 
   DWORD nb;
-  if (!WriteFile (sendsig, leader, packsize, &nb, NULL) || nb != packsize)
+  BOOL res;
+  /* Try multiple times to send if packsize != nb since that probably
+     means that the pipe buffer is full.  */
+  for (int i = 0; i < 100; i++)
+    {
+      res = WriteFile (sendsig, leader, packsize, &nb, NULL);
+      if (!res || packsize == nb)
+	break;
+      Sleep (10);
+      res = 0;
+    }
+
+  if (!res)
     {
       /* Couldn't send to the pipe.  This probably means that the
 	 process is exiting.  */
@@ -645,7 +692,7 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
 	  ForceCloseHandle (sendsig);
 	}
       else if (!p->exec_sendsig && !exit_state)
-	system_printf ("error sending signal %d, pipe handle %p, nb %u, packsize %u, %E",
+	system_printf ("error sending signal %d, pid %u, pipe handle %p, nb %u, packsize %u, %E",
 		       si.si_signo, p->pid, sendsig, nb, packsize);
       if (GetLastError () == ERROR_BROKEN_PIPE)
 	set_errno (ESRCH);
@@ -730,13 +777,8 @@ child_info::child_info (unsigned in_cb, child_info_types chtype,
      This seems to be a bug in Vista's WOW64, which apparently copies the
      lpReserved2 datastructure not using the cbReserved2 size information,
      but using the information given in the first DWORD within lpReserved2
-     instead.  32 bit Windows and former WOW64 don't care if msv_count is 0
-     or a sensible non-0 count value.  However, it's not clear if a non-0
-     count doesn't result in trying to evaluate the content, so we do this
-     really only for Vista 64 for now.
-
-     Note: It turns out that a non-zero value *does* harm operation on
-     XP 64 and 2K3 64 (Crash in CreateProcess call).
+     instead.  However, it's not clear if a non-0 count doesn't result in
+     trying to evaluate the content, so we do this really only for Vista 64.
 
      The value is sizeof (child_info_*) / 5 which results in a count which
      covers the full datastructure, plus not more than 4 extra bytes.  This
@@ -747,7 +789,21 @@ child_info::child_info (unsigned in_cb, child_info_types chtype,
   fhandler_union_cb = sizeof (fhandler_union);
   user_h = cygwin_user_h;
   if (strace.active ())
-    flag |= _CI_STRACED;
+    {
+      NTSTATUS status;
+      ULONG DebugFlags;
+
+      /* Only propagate _CI_STRACED to child if strace is actually tracing
+	 child processes of this process.  The undocumented ProcessDebugFlags
+	 returns 0 if EPROCESS->NoDebugInherit is TRUE, 1 otherwise.
+	 This avoids a hang when stracing a forking or spawning process
+	 with the -f flag set to "don't follow fork". */
+      status = NtQueryInformationProcess (GetCurrentProcess (),
+					  ProcessDebugFlags, &DebugFlags,
+					  sizeof (DebugFlags), NULL);
+      if (NT_SUCCESS (status) && DebugFlags)
+	flag |= _CI_STRACED;
+    }
   if (need_subproc_ready)
     {
       subproc_ready = CreateEvent (&sec_all, FALSE, FALSE, NULL);
@@ -1080,7 +1136,7 @@ remove_proc (int ci)
       if (_my_tls._ctinfo != procs[ci].wait_thread)
 	procs[ci].wait_thread->terminate_thread ();
     }
-  else if (procs[ci]->exists ())
+  else if (procs[ci] && procs[ci]->exists ())
     return true;
 
   sigproc_printf ("removing procs[%d], pid %d, nprocs %d", ci, procs[ci]->pid,
@@ -1238,9 +1294,12 @@ wait_sig (VOID *)
 	continue;
 
       sigset_t dummy_mask;
+      threadlist_t *tl_entry;
       if (!pack.mask)
 	{
+	  tl_entry = cygheap->find_tls (_main_tls);
 	  dummy_mask = _main_tls->sigmask;
+	  cygheap->unlock_tls (tl_entry);
 	  pack.mask = &dummy_mask;
 	}
 
@@ -1255,11 +1314,16 @@ wait_sig (VOID *)
 	  strace.activate (false);
 	  break;
 	case __SIGPENDING:
-	  *pack.mask = 0;
-	  unsigned bit;
-	  while ((q = q->next))
-	    if (pack.sigtls->sigmask & (bit = SIGTOMASK (q->si.si_signo)))
-	      *pack.mask |= bit;
+	  {
+	    unsigned bit;
+
+	    *pack.mask = 0;
+	    tl_entry = cygheap->find_tls (pack.sigtls);
+	    while ((q = q->next))
+	      if (pack.sigtls->sigmask & (bit = SIGTOMASK (q->si.si_signo)))
+		*pack.mask |= bit;
+	    cygheap->unlock_tls (tl_entry);
+	  }
 	  break;
 	case __SIGHOLD:
 	  sig_held = true;
@@ -1294,8 +1358,10 @@ wait_sig (VOID *)
 	    sig_clear (-pack.si.si_signo);
 	  else
 	    sigq.add (pack);
+	  /*FALLTHRU*/
 	case __SIGNOHOLD:
 	  sig_held = false;
+	  /*FALLTHRU*/
 	case __SIGFLUSH:
 	case __SIGFLUSHFAST:
 	  if (!sig_held)

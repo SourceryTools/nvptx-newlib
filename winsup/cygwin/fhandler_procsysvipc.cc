@@ -1,7 +1,5 @@
 /* fhandler_procsysvipc.cc: fhandler for /proc/sysvipc virtual filesystem
 
-   Copyright 2011, 2012, 2013, 2014 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -125,7 +123,9 @@ fhandler_procsysvipc::readdir (DIR *dir, dirent *de)
     if (cygserver_running != CYGSERVER_OK)
       goto out;
   }
-  strcpy (de->d_name, procsysvipc_tab[dir->__d_position++].name);
+  strcpy (de->d_name, procsysvipc_tab[dir->__d_position].name);
+  de->d_type = virt_ftype_to_dtype (procsysvipc_tab[dir->__d_position].type);
+  dir->__d_position++;
   dir->__flags |= dirent_saw_dot | dirent_saw_dot_dot;
   res = 0;
 out:

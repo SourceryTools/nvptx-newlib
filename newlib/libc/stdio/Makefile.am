@@ -4,32 +4,236 @@ AUTOMAKE_OPTIONS = cygnus
 
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
-GENERAL_INT_FORMATTED_IO_SOURCES = siprintf.c siscanf.c
+if NEWLIB_NANO_FORMATTED_IO
+GENERAL_INT_FORMATTED_IO_SOURCES =
+else
+GENERAL_INT_FORMATTED_IO_SOURCES = \
+	fiprintf.c			\
+	fiscanf.c			\
+	iprintf.c			\
+	iscanf.c			\
+	siprintf.c			\
+	siscanf.c			\
+	sniprintf.c			\
+	vdiprintf.c			\
+	vfprintf.c			\
+	vfwprintf.c			\
+	viprintf.c			\
+	viscanf.c			\
+	vsiprintf.c			\
+	vsiscanf.c			\
+	vsniprintf.c
+endif
 
 GENERAL_SOURCES = \
 	$(GENERAL_INT_FORMATTED_IO_SOURCES) \
+	clearerr.c			\
+	fclose.c			\
+	fdopen.c			\
+	feof.c				\
+	ferror.c			\
+	fflush.c			\
+	fgetc.c			\
+	fgetpos.c			\
+	fgets.c			\
+	fileno.c			\
+	findfp.c			\
+	flags.c			\
+	fopen.c			\
+	fprintf.c			\
+	fputc.c			\
+	fputs.c			\
+	fread.c			\
+	freopen.c			\
+	fscanf.c			\
+	fseek.c			\
+	fsetpos.c			\
+	ftell.c			\
+	fvwrite.c			\
+	fwalk.c			\
+	fwrite.c			\
+	getc.c				\
+	getchar.c			\
+	getc_u.c			\
+	getchar_u.c			\
+	getdelim.c			\
+	getline.c			\
+	gets.c				\
+	makebuf.c			\
+	perror.c			\
+	printf.c			\
+	putc.c				\
+	putchar.c			\
+	putc_u.c			\
+	putchar_u.c			\
+	puts.c				\
+	refill.c			\
+	remove.c			\
+	rename.c			\
+	rewind.c			\
+	rget.c				\
+	scanf.c			\
+	sccl.c				\
+	setbuf.c			\
+	setbuffer.c			\
+	setlinebuf.c			\
+	setvbuf.c			\
 	snprintf.c			\
 	sprintf.c			\
 	sscanf.c			\
+	stdio.c			\
+	tmpfile.c			\
+	tmpnam.c			\
+	ungetc.c			\
+	vdprintf.c			\
+	vprintf.c			\
+	vscanf.c			\
 	vsnprintf.c			\
 	vsprintf.c			\
-	vfprintf.c			\
-	vsscanf.c			
+	vsscanf.c			\
+	wbuf.c				\
+	wsetup.c
 
-LIBADD_OBJS= $(lpfx)svfiprintf.$(oext) $(lpfx)svfprintf.$(oext)
+## The following are EL/IX level 2 interfaces
+if ELIX_LEVEL_1
+ELIX_2_SOURCES =
+else
+if NEWLIB_NANO_FORMATTED_IO
+ELIX_2_INT_FORMATTED_IO_SOURCES =
+else
+ELIX_2_INT_FORMATTED_IO_SOURCES = \
+	asiprintf.c		\
+	vasiprintf.c
+
+endif !NEWLIB_NANO_FORMATTED_IO
+ELIX_2_SOURCES = \
+	$(ELIX_2_INT_FORMATTED_IO_SOURCES) \
+	asprintf.c		\
+	fcloseall.c		\
+	fseeko.c		\
+	ftello.c		\
+	getw.c			\
+	mktemp.c		\
+	putw.c			\
+	vasprintf.c
+endif !ELIX_LEVEL_1
+
+## The following are EL/IX level 2 interfaces
+if ELIX_LEVEL_1
+ELIX_4_SOURCES =
+else
+if ELIX_LEVEL_2
+ELIX_4_SOURCES =
+else
+if ELIX_LEVEL_3
+ELIX_4_SOURCES =
+else
+if NEWLIB_NANO_FORMATTED_IO
+ELIX_4_INT_FORMATTED_IO_SOURCES =
+else
+ELIX_4_INT_FORMATTED_IO_SOURCES = \
+	asniprintf.c		\
+	diprintf.c		\
+	vasniprintf.c
+
+endif !NEWLIB_NANO_FORMATTED_IO
+ELIX_4_SOURCES = \
+	$(ELIX_4_INT_FORMATTED_IO_SOURCES) \
+	asnprintf.c		\
+	clearerr_u.c		\
+	dprintf.c		\
+	feof_u.c		\
+	ferror_u.c		\
+	fflush_u.c		\
+	fgetc_u.c		\
+	fgets_u.c		\
+	fgetwc.c		\
+	fgetwc_u.c		\
+	fgetws.c		\
+	fgetws_u.c		\
+	fileno_u.c		\
+	fmemopen.c		\
+	fopencookie.c		\
+	fpurge.c		\
+	fputc_u.c		\
+	fputs_u.c		\
+	fputwc.c		\
+	fputwc_u.c		\
+	fputws.c		\
+	fputws_u.c		\
+	fread_u.c		\
+	fsetlocking.c		\
+	funopen.c		\
+	fwide.c			\
+	fwprintf.c		\
+	fwrite_u.c		\
+	fwscanf.c		\
+	getwc.c			\
+	getwc_u.c		\
+	getwchar.c		\
+	getwchar_u.c		\
+	open_memstream.c	\
+	putwc.c			\
+	putwc_u.c		\
+	putwchar.c		\
+	putwchar_u.c		\
+	stdio_ext.c		\
+	swprintf.c		\
+	swscanf.c		\
+	ungetwc.c		\
+	vasnprintf.c		\
+	vswprintf.c		\
+	vswscanf.c		\
+	vwprintf.c		\
+	vwscanf.c		\
+	wprintf.c		\
+	wscanf.c
+
+endif !ELIX_LEVEL_3
+endif !ELIX_LEVEL_2
+endif !ELIX_LEVEL_1
+
+if NEWLIB_NANO_FORMATTED_IO
+LIBADD_OBJS = \
+	$(lpfx)nano-vfprintf_float.$(oext)	\
+	$(lpfx)nano-svfprintf.$(oext)		\
+	$(lpfx)nano-svfscanf.$(oext)		\
+	$(lpfx)nano-vfprintf.$(oext)		\
+	$(lpfx)nano-vfprintf_i.$(oext)		\
+	$(lpfx)nano-vfscanf.$(oext)		\
+	$(lpfx)nano-vfscanf_i.$(oext)		\
+	$(lpfx)nano-vfscanf_float.$(oext)	\
+	$(lpfx)svfiwprintf.$(oext)		\
+	$(lpfx)svfwprintf.$(oext)		\
+	$(lpfx)vfiwprintf.$(oext)		\
+	$(lpfx)svfiwscanf.$(oext)		\
+	$(lpfx)svfwscanf.$(oext)		\
+	$(lpfx)vfiwscanf.$(oext)		\
+	$(lpfx)vfwscanf.$(oext)
+else
+LIBADD_OBJS = \
+	$(lpfx)svfiprintf.$(oext) $(lpfx)svfprintf.$(oext) \
+	$(lpfx)svfiscanf.$(oext) $(lpfx)svfscanf.$(oext) \
+	$(lpfx)vfiprintf.$(oext) \
+	$(lpfx)vfscanf.$(oext) $(lpfx)vfiscanf.$(oext) \
+	$(lpfx)svfiwprintf.$(oext) $(lpfx)svfwprintf.$(oext) \
+	$(lpfx)vfiwprintf.$(oext) \
+	$(lpfx)svfiwscanf.$(oext) $(lpfx)svfwscanf.$(oext) \
+	$(lpfx)vfiwscanf.$(oext) $(lpfx)vfwscanf.$(oext)
+endif
 
 libstdio_la_LDFLAGS = -Xcompiler -nostdlib
 
 if USE_LIBTOOL
 noinst_LTLIBRARIES = libstdio.la
-libstdio_la_SOURCES = $(GENERAL_SOURCES)
+libstdio_la_SOURCES = $(GENERAL_SOURCES) $(ELIX_2_SOURCES) $(ELIX_4_SOURCES)
 libstdio_la_LIBADD = $(LIBADD_OBJS)
 libstdio_la_DEPENDENCIES = $(LIBADD_OBJS)
 LIB_COMPILE = $(LTCOMPILE)
 noinst_DATA = objectlist.awk.in
 else
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = $(GENERAL_SOURCES)
+lib_a_SOURCES = $(GENERAL_SOURCES) $(ELIX_2_SOURCES) $(ELIX_4_SOURCES)
 lib_a_LIBADD = $(LIBADD_OBJS)
 lib_a_CFLAGS = $(AM_CFLAGS)
 lib_a_DEPENDENCIES = $(LIBADD_OBJS)
@@ -50,44 +254,38 @@ include $(srcdir)/../../Makefile.shared
 if NEWLIB_NANO_FORMATTED_IO
 # Rules compiling small-footprint nano-formatted-io implementation.
 $(lpfx)nano-vfprintf.$(oext): nano-vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -c $(srcdir)/nano-vfprintf.c -o $@
+	$(LIB_COMPILE) -c $(srcdir)/nano-vfprintf.c -o $@
 
 $(lpfx)nano-vfprintf_i.$(oext): nano-vfprintf_i.c
-	$(LIB_COMPILE) -fshort-enums -c $(srcdir)/nano-vfprintf_i.c -o $@
+	$(LIB_COMPILE) -c $(srcdir)/nano-vfprintf_i.c -o $@
 
 $(lpfx)nano-vfprintf_float.$(oext): nano-vfprintf_float.c
-	$(LIB_COMPILE) -fshort-enums -c $(srcdir)/nano-vfprintf_float.c -o $@
+	$(LIB_COMPILE) -c $(srcdir)/nano-vfprintf_float.c -o $@
 
 $(lpfx)nano-svfprintf.$(oext): nano-vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -DSTRING_ONLY -c $(srcdir)/nano-vfprintf.c -o $@
+	$(LIB_COMPILE) -DSTRING_ONLY -c $(srcdir)/nano-vfprintf.c -o $@
 endif
 
 # This rule is needed so that libtool compiles vfiprintf before vfprintf.
 # Otherwise libtool moves vfprintf.o and subsequently can't find it.
 
-$(lpfx)vfprintf.$(oext): vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -c $(srcdir)/vfprintf.c -o $@
-
 $(lpfx)vfiprintf.$(oext): vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -DINTEGER_ONLY -c $(srcdir)/vfprintf.c -o $@
+	$(LIB_COMPILE) -DINTEGER_ONLY -c $(srcdir)/vfprintf.c -o $@
 
 $(lpfx)svfprintf.$(oext): vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -DSTRING_ONLY -c $(srcdir)/vfprintf.c -o $@
+	$(LIB_COMPILE) -DSTRING_ONLY -c $(srcdir)/vfprintf.c -o $@
 
 $(lpfx)svfiprintf.$(oext): vfprintf.c
-	$(LIB_COMPILE) -fshort-enums -DINTEGER_ONLY -DSTRING_ONLY -c $(srcdir)/vfprintf.c -o $@
-
-$(lpfx)vfwprintf.$(oext): vfwprintf.c
-	$(LIB_COMPILE) -fshort-enums -c $(srcdir)/vfwprintf.c -o $@
+	$(LIB_COMPILE) -DINTEGER_ONLY -DSTRING_ONLY -c $(srcdir)/vfprintf.c -o $@
 
 $(lpfx)vfiwprintf.$(oext): vfwprintf.c
-	$(LIB_COMPILE) -fshort-enums -DINTEGER_ONLY -c $(srcdir)/vfwprintf.c -o $@
+	$(LIB_COMPILE) -DINTEGER_ONLY -c $(srcdir)/vfwprintf.c -o $@
 
 $(lpfx)svfwprintf.$(oext): vfwprintf.c
-	$(LIB_COMPILE) -fshort-enums -DSTRING_ONLY -c $(srcdir)/vfwprintf.c -o $@
+	$(LIB_COMPILE) -DSTRING_ONLY -c $(srcdir)/vfwprintf.c -o $@
 
 $(lpfx)svfiwprintf.$(oext): vfwprintf.c
-	$(LIB_COMPILE) -fshort-enums -DINTEGER_ONLY -DSTRING_ONLY -c $(srcdir)/vfwprintf.c -o $@
+	$(LIB_COMPILE) -DINTEGER_ONLY -DSTRING_ONLY -c $(srcdir)/vfwprintf.c -o $@
 
 if NEWLIB_NANO_FORMATTED_IO
 # Rules compiling small-footprint nano-formatted-io implementation.
@@ -173,6 +371,7 @@ CHEWOUT_FILES = \
 	fread.def		\
 	freopen.def		\
 	fseek.def		\
+	fsetlocking.def		\
 	fsetpos.def		\
 	ftell.def		\
 	funopen.def		\
@@ -186,7 +385,6 @@ CHEWOUT_FILES = \
 	getline.def		\
 	gets.def		\
 	getw.def		\
-	getwc.def		\
 	getwchar.def		\
 	mktemp.def		\
 	open_memstream.def	\
@@ -197,7 +395,6 @@ CHEWOUT_FILES = \
 	putchar_u.def		\
 	puts.def		\
 	putw.def		\
-	putwc.def		\
 	putwchar.def		\
 	remove.def		\
 	rename.def		\
@@ -208,6 +405,7 @@ CHEWOUT_FILES = \
 	setvbuf.def		\
 	sprintf.def		\
 	sscanf.def		\
+	stdio_ext.def		\
 	swprintf.def		\
 	swscanf.def		\
 	tmpfile.def		\
@@ -217,37 +415,46 @@ CHEWOUT_FILES = \
 	vfwprintf.def		\
 	vfwscanf.def
 
-SUFFIXES = .def
+CHAPTERS = stdio.tex
 
-CHEW = ../../doc/makedoc -f $(srcdir)/../../doc/doc.str
-
-.c.def:
-	$(CHEW) < $< > $*.def 2> $*.ref
-	touch stmp-def
-
-TARGETDOC = ../tmp.texi
-
-doc: $(CHEWOUT_FILES)
-	cat $(srcdir)/stdio.tex >> $(TARGETDOC)
-
-CLEANFILES = $(CHEWOUT_FILES) *.ref
-
+$(lpfx)clearerr.$(oext): local.h
+$(lpfx)clearerr_u.$(oext): local.h
 $(lpfx)fclose.$(oext): local.h
 $(lpfx)fdopen.$(oext): local.h
+$(lpfx)feof.$(oext): local.h
+$(lpfx)feof_u.$(oext): local.h
+$(lpfx)ferror.$(oext): local.h
+$(lpfx)ferror_u.$(oext): local.h
 $(lpfx)fflush.$(oext): local.h
+$(lpfx)fflush_u.$(oext): fflush.c
+$(lpfx)fgetc.$(oext): local.h
+$(lpfx)fgetc_u.$(oext): local.h
+$(lpfx)fgets.$(oext): local.h
+$(lpfx)fgets_u.$(oext): fgets.c
 $(lpfx)fgetwc.$(oext): local.h
+$(lpfx)fgetwc_u.$(oext): local.h
 $(lpfx)fgetws.$(oext): local.h
+$(lpfx)fgetws_u.$(oext): fgetws.c
+$(lpfx)fileno.$(oext): local.h
+$(lpfx)fileno_u.$(oext): local.h
 $(lpfx)findfp.$(oext): local.h
 $(lpfx)fmemopen.$(oext): local.h
 $(lpfx)fopen.$(oext): local.h
 $(lpfx)fopencookie.$(oext): local.h
 $(lpfx)fpurge.$(oext): local.h
+$(lpfx)fputc.$(oext): local.h
+$(lpfx)fputc_u.$(oext): local.h
 $(lpfx)fputs.$(oext): fvwrite.h
+$(lpfx)fputs_u.$(oext): fputs.c
 $(lpfx)fputwc.$(oext): local.h
+$(lpfx)fputwc_u.$(oext): local.h
 $(lpfx)fputws.$(oext): local.h fvwrite.h
+$(lpfx)fputws_u.$(oext): fputws.c
 $(lpfx)fread.$(oext): local.h
+$(lpfx)fread_u.$(oext): fread.c
 $(lpfx)freopen.$(oext): local.h
 $(lpfx)fseek.$(oext): local.h
+$(lpfx)fsetlocking.$(oext): local.h
 $(lpfx)ftell.$(oext): local.h
 $(lpfx)funopen.$(oext): local.h
 $(lpfx)fvwrite.$(oext): local.h fvwrite.h
@@ -255,15 +462,20 @@ $(lpfx)fwalk.$(oext): local.h
 $(lpfx)fwide.$(oext): local.h
 $(lpfx)fwprintf.$(oext): local.h
 $(lpfx)fwrite.$(oext): local.h fvwrite.h
+$(lpfx)fwrite_u.$(oext): fwrite.c
 $(lpfx)fwscanf.$(oext): local.h
 $(lpfx)getwc.$(oext): local.h
+$(lpfx)getwc_u.$(oext): local.h
 $(lpfx)getwchar.$(oext): local.h
+$(lpfx)getwchar_u.$(oext): local.h
 $(lpfx)iscanf.$(oext): local.h
 $(lpfx)makebuf.$(oext): local.h
 $(lpfx)open_memstream.$(oext): local.h
 $(lpfx)puts.$(oext): fvwrite.h
 $(lpfx)putwc.$(oext): local.h
+$(lpfx)putwc_u.$(oext): local.h
 $(lpfx)putwchar.$(oext): local.h
+$(lpfx)putwchar_u.$(oext): local.h
 $(lpfx)refill.$(oext): local.h
 $(lpfx)scanf.$(oext): local.h
 $(lpfx)setbuf.$(oext): local.h

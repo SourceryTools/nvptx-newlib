@@ -1,7 +1,5 @@
 /* flock.cc.  NT specific implementation of advisory file locking.
 
-   Copyright 2003, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Red Hat, Inc.
-
    This file is part of Cygwin.
 
    This software is a copyrighted work licensed under the terms of the
@@ -290,7 +288,7 @@ class lockf_t
     { cfree (p); }
 
     POBJECT_ATTRIBUTES create_lock_obj_attr (lockfattr_t *attr,
-					     ULONG flags);
+					     ULONG flags, void *sd_buf);
 
     void create_lock_obj ();
     bool open_lock_obj ();
@@ -636,7 +634,7 @@ inode_t::get_all_locks_list ()
 /* Create the lock object name.  The name is constructed from the lock
    properties which identify it uniquely, all values in hex. */
 POBJECT_ATTRIBUTES
-lockf_t::create_lock_obj_attr (lockfattr_t *attr, ULONG flags)
+lockf_t::create_lock_obj_attr (lockfattr_t *attr, ULONG flags, void *sd_buf)
 {
   __small_swprintf (attr->name, LOCK_OBJ_NAME_FMT,
 		    lf_flags & (F_POSIX | F_FLOCK), lf_type, lf_start, lf_end,
@@ -644,7 +642,7 @@ lockf_t::create_lock_obj_attr (lockfattr_t *attr, ULONG flags)
   RtlInitCountedUnicodeString (&attr->uname, attr->name,
 			       LOCK_OBJ_NAME_LEN * sizeof (WCHAR));
   InitializeObjectAttributes (&attr->attr, &attr->uname, flags, lf_inode->i_dir,
-			      everyone_sd (FLOCK_EVENT_ACCESS));
+			      _everyone_sd (sd_buf, FLOCK_EVENT_ACCESS));
   return &attr->attr;
 }
 
@@ -703,6 +701,12 @@ create_lock_in_parent (PVOID param)
       NtClose (lf_obj);
       return 0;
     }
+  /* The handle gets created non-inheritable.  That's fine, unless the parent
+     starts another process accessing this object.  So, after it's clear we
+     have to store the handle for further use, make sure it gets inheritable
+     by child processes. */
+  if (!SetHandleInformation (lf_obj, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+    goto err;
   /* otherwise generate inode from directory name... */
   node = inode_t::get (dev, ino, true, false);
   /* ...and generate lock from object name. */
@@ -760,11 +764,13 @@ lockf_t::create_lock_obj ()
 {
   lockfattr_t attr;
   NTSTATUS status;
+  PSECURITY_DESCRIPTOR sd_buf = alloca (SD_MIN_SIZE);
+  POBJECT_ATTRIBUTES lock_obj_attr;
 
   do
     {
-      status = NtCreateEvent (&lf_obj, CYG_EVENT_ACCESS,
-			      create_lock_obj_attr (&attr, OBJ_INHERIT),
+      lock_obj_attr = create_lock_obj_attr (&attr, OBJ_INHERIT, sd_buf);
+      status = NtCreateEvent (&lf_obj, CYG_EVENT_ACCESS, lock_obj_attr,
 			      NotificationEvent, FALSE);
       if (!NT_SUCCESS (status))
 	{
@@ -810,7 +816,7 @@ lockf_t::create_lock_obj ()
 	  return;
 	}
       if (!DuplicateHandle (GetCurrentProcess (), lf_obj, parent_proc,
-			    &parent_lf_obj, TRUE, 0, DUPLICATE_SAME_ACCESS))
+			    &parent_lf_obj, TRUE, FALSE, DUPLICATE_SAME_ACCESS))
 	debug_printf ("DuplicateHandle (lf_obj): %E");
       else
 	{
@@ -846,7 +852,7 @@ lockf_t::open_lock_obj ()
   NTSTATUS status;
 
   status = NtOpenEvent (&lf_obj, FLOCK_EVENT_ACCESS,
-			create_lock_obj_attr (&attr, 0));
+			create_lock_obj_attr (&attr, 0, alloca (SD_MIN_SIZE)));
   if (!NT_SUCCESS (status))
     {
       SetLastError (RtlNtStatusToDosError (status));
@@ -873,7 +879,9 @@ lockf_t::del_lock_obj (HANDLE fhdl, bool signal)
       if ((lf_flags & F_POSIX) || signal
 	  || (fhdl && get_obj_handle_count (fhdl) <= 1))
 	{
-	  NtSetEvent (lf_obj, NULL);
+	  NTSTATUS status = NtSetEvent (lf_obj, NULL);
+	  if (!NT_SUCCESS (status))
+	    system_printf ("NtSetEvent, %y", status);
 	  /* For BSD locks, notify the parent process. */
 	  if (lf_flags & F_FLOCK)
 	    {
@@ -981,7 +989,7 @@ fhandler_base::lock (int a_op, struct flock *fl)
 	if ((a_flags & F_POSIX)
 	    && ((get_flags () & O_ACCMODE) == O_WRONLY))
 	  {
-	    system_printf ("get_access() == %x", get_access ());
+	    debug_printf ("request F_RDLCK on O_WRONLY file: EBADF");
 	    set_errno (EBADF);
 	    return -1;
 	  }
@@ -991,7 +999,7 @@ fhandler_base::lock (int a_op, struct flock *fl)
 	if ((a_flags & F_POSIX)
 	    && ((get_flags () & O_ACCMODE) == O_RDONLY))
 	  {
-	    system_printf ("get_access() == %x", get_access ());
+	    debug_printf ("request F_WRLCK on O_RDONLY file: EBADF");
 	    set_errno (EBADF);
 	    return -1;
 	  }
@@ -1290,7 +1298,7 @@ lf_setlock (lockf_t *lock, inode_t *node, lockf_t **clean, HANDLE fhdl)
 	timeout = 100L;
 
       DWORD WAIT_SIGNAL_ARRIVED = WAIT_OBJECT_0 + wait_count;
-      set_signal_arrived here (w4[wait_count++]);
+      wait_signal_arrived here (w4[wait_count++]);
 
       DWORD WAIT_THREAD_CANCELED = WAIT_TIMEOUT + 1;
       HANDLE cancel_event = pthread::get_cancel_event ();
@@ -1761,37 +1769,37 @@ flock (int fd, int operation)
   int cmd;
   struct flock fl = { 0, SEEK_SET, 0, 0, 0 };
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  cygheap_fdget cfd (fd, true);
-  if (cfd < 0)
-    goto done;
-
-  cmd = (operation & LOCK_NB) ? F_SETLK : F_SETLKW;
-  switch (operation & (~LOCK_NB))
+  __try
     {
-    case LOCK_EX:
-      fl.l_type = F_WRLCK;
-      break;
-    case LOCK_SH:
-      fl.l_type = F_RDLCK;
-      break;
-    case LOCK_UN:
-      fl.l_type = F_UNLCK;
-      break;
-    default:
-      set_errno (EINVAL);
-      goto done;
+      cygheap_fdget cfd (fd);
+      if (cfd < 0)
+	__leave;
+
+      cmd = (operation & LOCK_NB) ? F_SETLK : F_SETLKW;
+      switch (operation & (~LOCK_NB))
+	{
+	case LOCK_EX:
+	  fl.l_type = F_WRLCK;
+	  break;
+	case LOCK_SH:
+	  fl.l_type = F_RDLCK;
+	  break;
+	case LOCK_UN:
+	  fl.l_type = F_UNLCK;
+	  break;
+	default:
+	  set_errno (EINVAL);
+	  __leave;
+	}
+      if (!cfd->mandatory_locking ())
+	fl.l_type |= F_FLOCK;
+      res = cfd->mandatory_locking () ? cfd->mand_lock (cmd, &fl)
+				      : cfd->lock (cmd, &fl);
+      if ((res == -1) && ((get_errno () == EAGAIN) || (get_errno () == EACCES)))
+	set_errno (EWOULDBLOCK);
     }
-  if (!cfd->mandatory_locking ())
-    fl.l_type |= F_FLOCK;
-  res = cfd->mandatory_locking () ? cfd->mand_lock (cmd, &fl)
-				  : cfd->lock (cmd, &fl);
-  if ((res == -1) && ((get_errno () == EAGAIN) || (get_errno () == EACCES)))
-    set_errno (EWOULDBLOCK);
-done:
+  __except (EFAULT) {}
+  __endtry
   syscall_printf ("%R = flock(%d, %d)", res, fd, operation);
   return res;
 }
@@ -1805,50 +1813,50 @@ lockf (int filedes, int function, off_t size)
 
   pthread_testcancel ();
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  cygheap_fdget cfd (filedes, true);
-  if (cfd < 0)
-    goto done;
-
-  fl.l_start = 0;
-  fl.l_len = size;
-  fl.l_whence = SEEK_CUR;
-
-  switch (function)
+  __try
     {
-    case F_ULOCK:
-      cmd = F_SETLK;
-      fl.l_type = F_UNLCK;
-      break;
-    case F_LOCK:
-      cmd = F_SETLKW;
-      fl.l_type = F_WRLCK;
-      break;
-    case F_TLOCK:
-      cmd = F_SETLK;
-      fl.l_type = F_WRLCK;
-      break;
-    case F_TEST:
-      fl.l_type = F_WRLCK;
-      if (cfd->lock (F_GETLK, &fl) == -1)
-	goto done;
-      if (fl.l_type == F_UNLCK || fl.l_pid == getpid ())
-	res = 0;
-      else
-	errno = EAGAIN;
-      goto done;
-      /* NOTREACHED */
-    default:
-      errno = EINVAL;
-      goto done;
-      /* NOTREACHED */
+      cygheap_fdget cfd (filedes);
+      if (cfd < 0)
+	__leave;
+
+      fl.l_start = 0;
+      fl.l_len = size;
+      fl.l_whence = SEEK_CUR;
+
+      switch (function)
+	{
+	case F_ULOCK:
+	  cmd = F_SETLK;
+	  fl.l_type = F_UNLCK;
+	  break;
+	case F_LOCK:
+	  cmd = F_SETLKW;
+	  fl.l_type = F_WRLCK;
+	  break;
+	case F_TLOCK:
+	  cmd = F_SETLK;
+	  fl.l_type = F_WRLCK;
+	  break;
+	case F_TEST:
+	  fl.l_type = F_WRLCK;
+	  if (cfd->lock (F_GETLK, &fl) == -1)
+	    __leave;
+	  if (fl.l_type == F_UNLCK || fl.l_pid == getpid ())
+	    res = 0;
+	  else
+	    errno = EAGAIN;
+	  __leave;
+	  /* NOTREACHED */
+	default:
+	  errno = EINVAL;
+	  __leave;
+	  /* NOTREACHED */
+	}
+      res = cfd->mandatory_locking () ? cfd->mand_lock (cmd, &fl)
+				      : cfd->lock (cmd, &fl);
     }
-  res = cfd->mandatory_locking () ? cfd->mand_lock (cmd, &fl)
-				  : cfd->lock (cmd, &fl);
-done:
+  __except (EFAULT) {}
+  __endtry
   syscall_printf ("%R = lockf(%d, %d, %D)", res, filedes, function, size);
   return res;
 }
@@ -1998,14 +2006,12 @@ fhandler_disk_file::mand_lock (int a_op, struct flock *fl)
 	      thr->detach ();
 	      break;
 	    default:
-	      /* Signal arrived. */
-	      /* Starting with Vista, CancelSynchronousIo works, and we wait
-		 for the thread to exit.  lp.status will be either
-		 STATUS_SUCCESS, or STATUS_CANCELLED.  We only call
-		 NtUnlockFile in the first case.
-		 Prior to Vista, CancelSynchronousIo doesn't exist, so we
-		 terminated the thread and always call NtUnlockFile since
-		 lp.status was 0 to begin with. */
+	      /* Signal arrived.
+		 If CancelSynchronousIo works we wait for the thread to exit.
+		 lp.status will be either STATUS_SUCCESS, or STATUS_CANCELLED.
+		 We only call NtUnlockFile in the first case.
+		 If CancelSynchronousIo fails we terminated the thread and
+		 call NtUnlockFile since lp.status was 0 to begin with. */
 	      if (CancelSynchronousIo (thr->thread_handle ()))
 		thr->detach ();
 	      else

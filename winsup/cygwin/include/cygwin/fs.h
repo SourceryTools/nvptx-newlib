@@ -1,6 +1,4 @@
 /* cygwin/fs.h
-
-   Copyright 2002, 2003, 2012 Red Hat Inc.
    Written by Chris January <chris@atomice.net>
 
 This file is part of Cygwin.
@@ -20,5 +18,11 @@ details. */
 #define BLKALIGNOFF  0x0000127a
 #define BLKPBSZGET   0x0000127b
 #define BLKGETSIZE64 0x00041268
+
+/* Flags for renameat2, from /usr/include/linux/fs.h.  For now we
+   support only RENAME_NOREPLACE. */
+#define RENAME_NOREPLACE (1 << 0)
+/* #define RENAME_EXCHANGE  (1 << 1) */
+/* #define RENAME_WHITEOUT  (1 << 2) */
 
 #endif

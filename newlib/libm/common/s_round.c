@@ -10,13 +10,13 @@
  */
 /*
 FUNCTION
-<<round>>, <<roundf>>--round to integer, to nearest
+<<round>>, <<roundf>>---round to integer, to nearest
 INDEX
 	round
 INDEX
 	roundf
 
-ANSI_SYNOPSIS
+SYNOPSIS
 	#include <math.h>
 	double round(double <[x]>);
 	float roundf(float <[x]>);

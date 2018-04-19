@@ -1,7 +1,5 @@
 /* sys/utmp.h
 
-   Copyright 2001, 2003, 2004, 2005, 2008 Red Hat, Inc.
-
    This software is a copyrighted work licensed under the terms of the
    Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
    details. */
@@ -40,7 +38,7 @@ extern struct utmp *getutline (const struct utmp *);
 extern struct utmp *pututline (const struct utmp *);
 extern void endutent (void);
 extern void setutent (void);
-extern void utmpname (const char *);
+extern int utmpname (const char *);
 
 void login (const struct utmp *);
 int logout (const char *);

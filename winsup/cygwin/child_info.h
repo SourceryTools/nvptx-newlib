@@ -1,8 +1,5 @@
 /* child_info.h: shared child info for cygwin
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2011, 2012,
-   2013 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -39,7 +36,7 @@ enum child_status
 #define EXEC_MAGIC_SIZE sizeof(child_info)
 
 /* Change this value if you get a message indicating that it is out-of-sync. */
-#define CURR_CHILD_INFO_MAGIC 0x93737edaU
+#define CURR_CHILD_INFO_MAGIC 0xc96f5e9U
 
 #define NPROCS	256
 
@@ -56,7 +53,7 @@ struct cchildren
 class child_info
 {
 public:
-  DWORD msv_count;	// zeroed on < W2K3, set to pseudo-count on Vista
+  DWORD msv_count;	// set to pseudo-count on Vista WOW64, zeroed otherwise
   DWORD cb;		// size of this record
   DWORD intro;		// improbable string
   DWORD magic;		// magic number unique to child_info
@@ -103,9 +100,10 @@ class child_info_fork: public child_info
 public:
   HANDLE forker_finished;// for synchronization with child
   jmp_buf jmp;		// where child will jump to
-  void *stackaddr;	// address of parent stack
-  void *stacktop;	// location of top of parent stack
-  void *stackbottom;	// location of bottom of parent stack
+  void *stackaddr;	// DeallocationStack or user-provided allocation address
+			// of parent thread
+  void *stacklimit;	// StackLimit of parent thread
+  void *stackbase;	// StackBase of parent thread
   size_t guardsize;     // size of POSIX guard region or (size_t) -1 if
 			// user stack
   char filler[4];
@@ -113,7 +111,6 @@ public:
   void __reg1 handle_fork ();
   bool abort (const char *fmt = NULL, ...);
   void alloc_stack ();
-  void alloc_stack_hard_way (volatile char *);
 };
 
 class fhandler_base;

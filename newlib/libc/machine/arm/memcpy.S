@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 ARM Ltd
+ * Copyright (c) 2013-2015 ARM Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,14 +26,22 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* The structure of the following #if #else #endif conditional chain
+   must match the chain in memcpy-stub.c.  */
+
+#include "acle-compat.h"
+
 #if defined (__OPTIMIZE_SIZE__) || defined (PREFER_SIZE_OVER_SPEED)
-        /* Do nothing here. See memcpy-stub.c in the same directory. */
-#elif defined (__ARM_ARCH_7A__) && defined (__ARM_FEATURE_UNALIGNED)
+  /* Defined in memcpy-stub.c.  */
+
+#elif (__ARM_ARCH >= 7 && __ARM_ARCH_PROFILE == 'A' \
+       && defined (__ARM_FEATURE_UNALIGNED))
 #include "memcpy-armv7a.S"
 
-#elif defined (__ARM_ARCH_7M__) || defined (__ARM_ARCH_7EM__)
+#elif __ARM_ARCH_ISA_THUMB == 2 && !__ARM_ARCH_ISA_ARM
 #include "memcpy-armv7m.S"
 
 #else
-        /* Do nothing here. See memcpy-stub.c in the same directory. */
+  /* Defined in memcpy-stub.c.  */
+
 #endif

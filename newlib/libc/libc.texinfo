@@ -1,19 +1,19 @@
 \input texinfo.tex
 @setfilename libc.info
-@syncodeindex fn cp
 
 @ifinfo
 @format
-START-INFO-DIR-ENTRY
-* libc::                        The ANSI C library.
-END-INFO-DIR-ENTRY
+@dircategory Newlib
+@direntry
+* libc: (libc).                 The ANSI C library.
+@end direntry
 @end format
 @end ifinfo
 
 @ifinfo
 This file documents the ANSI C library.
 
-Copyright (C) 1992, 1993, 1994-2013 Red Hat, Inc.
+Copyright (C) 1992, 1993, 1994-2014 Red Hat, Inc.
 
 @file{libc} includes software developed by the
 University of California, Berkeley and its contributors.
@@ -69,8 +69,8 @@ into another language, under the above conditions for modified versions.
 @title The Red Hat newlib C Library
 @subtitle Full Configuration
 @sp 1
-@subtitle @code{libc} 2.1.0
-@subtitle December 2013
+@subtitle @code{libc} 2.5.0
+@subtitle December 2016
 @author {Steve Chamberlain}
 @author {Roland Pesch}
 @author {Red Hat Support}
@@ -171,6 +171,7 @@ into another language, under the above conditions for modified versions.
 @ifset ICONV
 * Iconv::
 @end ifset
+* Overflow Protection::
 
 * Document Index::
 @end menu

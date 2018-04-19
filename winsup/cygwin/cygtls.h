@@ -1,8 +1,5 @@
 /* cygtls.h
 
-   Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013,
-   2014 Red Hat, Inc.
-
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
@@ -17,6 +14,7 @@ details. */
 #include <mntent.h>
 #undef _NOMNTENT_FUNCS
 #include <setjmp.h>
+#include <ucontext.h>
 
 #define CYGTLS_INITIALIZED 0xc763173f
 
@@ -44,18 +42,28 @@ details. */
 #else
 #pragma pack(push,4)
 #endif
+
 /* Defined here to support auto rebuild of tlsoffsets.h. */
 class tls_pathbuf
 {
-  int c_cnt;
-  int w_cnt;
+  /* Make sure that c_cnt and w_cnt are always the first two members of this
+     class, and never change the size (32 bit), unless you also change the
+     mov statements in sigbe! */
+  union
+    {
+      struct
+	{
+	  uint32_t c_cnt;
+	  uint32_t w_cnt;
+	};
+      uint64_t _counters;
+    };
   char  *c_buf[TP_NUM_C_BUFS];
   WCHAR *w_buf[TP_NUM_W_BUFS];
 
 public:
   void destroy ();
   friend class tmp_pathbuf;
-  friend class _cygtls;
   friend class san;
 };
 
@@ -129,7 +137,6 @@ struct _local_storage
   /* thread.cc */
   HANDLE cw_timer;
 
-  /* All functions requiring temporary path buffers. */
   tls_pathbuf pathbufs;
   char ttybuf[32];
 };
@@ -158,7 +165,7 @@ extern "C" int __ljfault (jmp_buf, int);
 
 /*gentls_offsets*/
 
-typedef uintptr_t __stack_t;
+typedef uintptr_t __tlsstack_t;
 
 class _cygtls
 {
@@ -179,10 +186,12 @@ public:
   int *errno_addr;
   sigset_t sigmask;
   sigset_t sigwait_mask;
+  stack_t altstack;
   siginfo_t *sigwait_info;
   HANDLE signal_arrived;
   bool will_wait_for_signal;
-  struct ucontext thread_context;
+  long __align;			/* Needed to align context to 16 byte. */
+  ucontext_t context;
   DWORD thread_id;
   siginfo_t infodata;
   struct pthread *tid;
@@ -193,17 +202,17 @@ public:
   unsigned incyg;
   unsigned spinning;
   unsigned stacklock;
-  __stack_t *stackptr;
-  __stack_t stack[TLS_STACK_SIZE];
+  __tlsstack_t *stackptr;
+  __tlsstack_t stack[TLS_STACK_SIZE];
   unsigned initialized;
 
   /*gentls_offsets*/
   void init_thread (void *, DWORD (*) (void *, void *));
   static void call (DWORD (*) (void *, void *), void *);
   void remove (DWORD);
-  void push (__stack_t addr) {*stackptr++ = (__stack_t) addr;}
-  __stack_t __reg1 pop ();
-  __stack_t retaddr () {return stackptr[-1];}
+  void push (__tlsstack_t addr) {*stackptr++ = (__tlsstack_t) addr;}
+  __tlsstack_t __reg1 pop ();
+  __tlsstack_t retaddr () {return stackptr[-1];}
   bool isinitialized () const
   {
     return initialized == CYGTLS_INITIALIZED;
@@ -236,7 +245,7 @@ public:
       }
     return signal_arrived;
   }
-  void set_signal_arrived (bool setit, HANDLE& h)
+  void wait_signal_arrived (bool setit, HANDLE& h)
   {
     if (!setit)
       will_wait_for_signal = false;
@@ -246,66 +255,85 @@ public:
 	will_wait_for_signal = true;
       }
   }
+  void set_signal_arrived ()
+  {
+    SetEvent (get_signal_arrived (false));
+  }
   void reset_signal_arrived ()
   {
     if (signal_arrived)
       ResetEvent (signal_arrived);
+  }
+  void unwait_signal_arrived ()
+  {
     will_wait_for_signal = false;
   }
   void handle_SIGCONT ();
 private:
   void __reg3 call2 (DWORD (*) (void *, void *), void *, void *);
+  void remove_pending_sigs ();
   /*gentls_offsets*/
 };
 #pragma pack(pop)
 
-/* FIXME: Find some way to autogenerate this value */
-#ifdef __x86_64__
-const int CYGTLS_PADSIZE = 12800;	/* Must be 16-byte aligned */
-#else
-const int CYGTLS_PADSIZE = 12700;
-#endif
+#include "cygtls_padsize.h"
 
 /*gentls_offsets*/
 
 #include "cygerrno.h"
 #include "ntdll.h"
 
-#ifdef __x86_64__
-/* When just using a "gs:X" asm for the x86_64 code, gcc wrongly creates
-   pc-relative instructions.  However, NtCurrentTeb() is inline assembler
-   anyway, so using it here should be fast enough on x86_64. */
-#define _tlsbase (NtCurrentTeb()->Tib.StackBase)
-#define _tlstop (NtCurrentTeb()->Tib.StackLimit)
-#else
-extern PVOID _tlsbase __asm__ ("%fs:4");
-extern PVOID _tlstop __asm__ ("%fs:8");
-#endif
-#define _my_tls (*((_cygtls *) ((char *)_tlsbase - CYGTLS_PADSIZE)))
+#define _my_tls (*((_cygtls *) ((PBYTE) NtCurrentTeb()->Tib.StackBase - CYGTLS_PADSIZE)))
 extern _cygtls *_main_tls;
 extern _cygtls *_sig_tls;
 
+#ifdef __x86_64__
+class san
+{
+  san *_clemente;
+  uint64_t _cnt;
+public:
+  DWORD64 ret;
+  DWORD64 frame;
+
+  san (PVOID _ret) __attribute__ ((always_inline))
+  {
+    _clemente = _my_tls.andreas;
+    _my_tls.andreas = this;
+    _cnt = _my_tls.locals.pathbufs._counters;
+    /* myfault_altstack_handler needs the current stack pointer and the
+       address of the _except block to restore the context correctly.
+       See comment preceeding myfault_altstack_handler in exception.cc. */
+    ret = (DWORD64) _ret;
+    __asm__ volatile ("movq %%rsp,%0": "=o" (frame));
+  }
+  ~san () __attribute__ ((always_inline))
+  {
+    _my_tls.andreas = _clemente;
+  }
+  /* This is the first thing called in the __except handler.  The attribute
+     "returns_twice" makes sure that GCC disregards any register value set
+     earlier in the function, so this call serves as a register barrier. */
+  void leave () __attribute__ ((returns_twice));
+};
+#else
 class san
 {
   san *_clemente;
   jmp_buf _context;
-  int _errno;
-  unsigned _c_cnt;
-  unsigned _w_cnt;
+  uint32_t _c_cnt;
+  uint32_t _w_cnt;
 public:
-  int setup (int myerrno = 0) __attribute__ ((always_inline))
+  int setup () __attribute__ ((always_inline))
   {
     _clemente = _my_tls.andreas;
     _my_tls.andreas = this;
-    _errno = myerrno;
     _c_cnt = _my_tls.locals.pathbufs.c_cnt;
     _w_cnt = _my_tls.locals.pathbufs.w_cnt;
     return __sjfault (_context);
   }
   void leave () __attribute__ ((always_inline))
   {
-    if (_errno)
-      set_errno (_errno);
     /* Restore tls_pathbuf counters in case of error. */
     _my_tls.locals.pathbufs.c_cnt = _c_cnt;
     _my_tls.locals.pathbufs.w_cnt = _w_cnt;
@@ -324,27 +352,88 @@ public:
   ~myfault () __attribute__ ((always_inline)) { sebastian.reset (); }
   inline int faulted () __attribute__ ((always_inline))
   {
-    return sebastian.setup (0);
-  }
-  inline int faulted (void const *obj, int myerrno = 0) __attribute__ ((always_inline))
-  {
-    return !obj || !(*(const char **) obj) || sebastian.setup (myerrno);
-  }
-  inline int faulted (int myerrno) __attribute__ ((always_inline))
-  {
-    return sebastian.setup (myerrno);
+    return sebastian.setup ();
   }
 };
+#endif
 
-class set_signal_arrived
+/* Exception handling macros.  These are required because SEH differs a lot
+   between 32 and 64 bit.  Essentially, on 64 bit, we have to create compile
+   time SEH tables which define the handler and try/except labels, while on
+   32 bit we can simply set up an SJLJ handler within the myfault class. */
+#define __mem_barrier	__asm__ __volatile__ ("" ::: "memory")
+#ifdef __x86_64__
+#define __try \
+  { \
+    __label__ __l_try, __l_except, __l_endtry; \
+    __mem_barrier; \
+    san __sebastian (&&__l_except); \
+    __asm__ goto ("\n" \
+      "  .seh_handler _ZN9exception7myfaultEP17_EXCEPTION_RECORDPvP8_CONTEXTP19_DISPATCHER_CONTEXT, @except						\n" \
+      "  .seh_handlerdata						\n" \
+      "  .long 1							\n" \
+      "  .rva %l[__l_try],%l[__l_endtry],%l[__l_except],%l[__l_except]	\n" \
+      "  .seh_code							\n" \
+      : : : : __l_try, __l_endtry, __l_except); \
+    { \
+      __l_try: \
+	__mem_barrier;
+
+#define __leave	\
+      goto __l_endtry
+
+#define __except(__errno) \
+      goto __l_endtry; \
+    } \
+    { \
+      __l_except: \
+	__mem_barrier; \
+	__sebastian.leave (); \
+	if (__errno) \
+	  set_errno (__errno);
+
+#define __endtry \
+    } \
+    __l_endtry: \
+      __mem_barrier; \
+  }
+
+#else /* !__x86_64__ */
+#define __try \
+  { \
+    __label__ __l_endtry; \
+    myfault efault; \
+    if (!efault.faulted ()) \
+      {
+
+#define __leave	\
+	goto __l_endtry
+
+#define __except(__errno) \
+	  goto __l_endtry; \
+      } \
+      { \
+	if (__errno) \
+	  set_errno (__errno);
+
+#define __endtry \
+      } \
+    __l_endtry: \
+      __mem_barrier; \
+  }
+#endif /* __x86_64__ */
+
+class wait_signal_arrived
 {
 public:
-  set_signal_arrived (bool setit, HANDLE& h) { _my_tls.set_signal_arrived (setit, h); }
-  set_signal_arrived (HANDLE& h) { _my_tls.set_signal_arrived (true, h); }
+  wait_signal_arrived (bool setit, HANDLE& h) { _my_tls.wait_signal_arrived (setit, h); }
+  wait_signal_arrived (HANDLE& h) { _my_tls.wait_signal_arrived (true, h); }
 
   operator int () const {return _my_tls.will_wait_for_signal;}
-  ~set_signal_arrived () { _my_tls.reset_signal_arrived (); }
+  /* Do not reset the signal_arrived event just because we leave the scope of
+     this wait_signal_arrived object.  This may lead to all sorts of races.
+     The only method actually resetting the signal_arrived event is
+     _cygtls::call_signal_handler. */
+  ~wait_signal_arrived () { _my_tls.unwait_signal_arrived (); }
 };
-
-#define __getreent() (&_my_tls.local_clib)
 /*gentls_offsets*/

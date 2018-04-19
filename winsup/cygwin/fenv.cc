@@ -1,7 +1,5 @@
 /* fenv.cc
 
-   Copyright 2010, 2011, 2012 Red Hat, Inc.
-
 This file is part of Cygwin.
 
 This software is a copyrighted work licensed under the terms of the
@@ -295,9 +293,8 @@ fegetexceptflag (fexcept_t *flagp, int excepts)
   if (use_sse)
     __asm__ volatile ("stmxcsr %0" : "=m" (mxcsr) : );
 
-  /* Mask undesired bits out and set result struct.  */
-  flagp->_fpu_exceptions = (sw & excepts);
-  flagp->_sse_exceptions = (mxcsr & excepts);
+  /* Mask undesired bits out and set result.  */
+  *flagp = (sw | mxcsr) & excepts;
 
   return 0;
 }
@@ -317,9 +314,9 @@ fesetexceptflag (const fexcept_t *flagp, int excepts)
 
   /* Set/Clear desired exception bits.  */
   fenv._fpu._fpu_sw &= ~excepts;
-  fenv._fpu._fpu_sw |= (excepts & flagp->_fpu_exceptions);
+  fenv._fpu._fpu_sw |= excepts & *flagp;
   fenv._sse_mxcsr &= ~excepts;
-  fenv._sse_mxcsr |= (excepts & flagp->_sse_exceptions);
+  fenv._sse_mxcsr |= excepts & *flagp;
 
   /* Set back into FPU state.  */
   return fesetenv (&fenv);
